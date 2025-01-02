@@ -14,8 +14,19 @@ what I mean here, is that the limited features are intentional
 
 we want to be slightly better than a text file, but not as complex as a full blown todo app/social media app.
 
+### Getting started
+
+run the server:  
+
 ```bash
 uv run server.py
+```
+
+run the ui:  
+
+```bash
+cd thread
+npm run dev
 ```
 
 ## Similar-ish ideas
