@@ -8,6 +8,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "fastapi>=0.115.6",
     "ipdb>=0.13.13",
+    "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0.36",

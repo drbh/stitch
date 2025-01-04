@@ -48,7 +48,7 @@
     window.removeEventListener("mousemove", handleMousemove);
     window.removeEventListener("mouseup", handleMouseup);
   }
-  
+
   let activeTab = "preview";
   let cursorPosition = { line: 1, column: 1 };
   let scrollTop = 0;

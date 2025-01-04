@@ -14,7 +14,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from pydantic import BaseModel
 from typing import List, Union, Optional, Dict
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 import shutil
@@ -391,8 +391,9 @@ async def get_posts(thread_id: int, db: Session = Depends(get_db)):
     )
 
 
-@app.get("/api/thread/{thread_id}/documents", response_model=Dict[str, Document])
+@app.get("/api/threads/{thread_id}/documents", response_model=Dict[str, Document])
 async def get_documents(thread_id: int, db: Session = Depends(get_db)):
+    print("get_documents thread_id", thread_id)
     documents = db.query(DocumentDB).filter(DocumentDB.thread_id == thread_id).all()
     return {doc.id: doc for doc in documents}
 
@@ -441,7 +442,6 @@ async def get_document(doc_id: str, db: Session = Depends(get_db)):
 
 @app.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: str, db: Session = Depends(get_db)):
-    print("delete_document doc_id", doc_id)
     document = db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -465,17 +465,6 @@ async def update_document(
     db.commit()
     db.refresh(db_document)
     return db_document
-
-
-@app.delete("/api/documents/{doc_id}")
-async def delete_document(doc_id: str, db: Session = Depends(get_db)):
-    document = db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    db.delete(document)
-    db.commit()
-    return {"message": "Document deleted"}
 
 
 @app.get("/api/posts/{post_id}", response_model=Post)

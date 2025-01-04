@@ -18,17 +18,16 @@ we want to be slightly better than a text file, but not as complex as a full blo
 
 ### Getting started
 
-run the server:  
+run the server:
 
 ```bash
 uv run server.py
 ```
 
-run the ui:  
+run the ui:
 
 ```bash
-cd thread
-npm run dev
+npm run dev --prefix ./thread
 ```
 
 ## Similar-ish ideas

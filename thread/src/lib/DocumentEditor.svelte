@@ -1,37 +1,37 @@
 <!-- components/DocumentEditor.svelte -->
 <script>
   import { createEventDispatcher } from 'svelte';
-  
+
   const dispatch = createEventDispatcher();
-  
+
   export let content = '';
   export let cursorPosition = { line: 1, column: 1 };
   export let scrollTop = 0;
-  
+
   let editor;
   let lineNumbers;
-  
+
   $: if (content) {
     updateLineNumbers();
   }
-  
+
   function handleKeydown(e) {
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
-      
+
       if (start !== end) {
         // Multi-line tab handling
         const text = editor.value;
         const startLine = text.substring(0, start).split('\n').length - 1;
         const endLine = text.substring(0, end).split('\n').length - 1;
-        
+
         const lines = text.split('\n');
         for (let i = startLine; i <= endLine; i++) {
           lines[i] = '  ' + lines[i];
         }
-        
+
         const newContent = lines.join('\n');
         dispatch('change', { content: newContent });
         updateLineNumbers();
@@ -43,12 +43,12 @@
       }
     }
   }
-  
+
   function handleInput(e) {
     dispatch('change', { content: e.target.value });
     updateLineNumbers();
   }
-  
+
   function updateCursorPosition() {
     if (!editor) return;
     const text = editor.value.substring(0, editor.selectionStart);
@@ -60,13 +60,13 @@
     dispatch('cursorMove', newPosition);
     updateLineNumbers();
   }
-  
+
   function updateLineNumbers() {
     if (!editor) return;
     const lines = editor.value.split('\n').length;
     lineNumbers = Array.from({ length: lines }, (_, i) => i + 1);
   }
-  
+
   function handleScroll() {
     if (!editor) return;
     const newScrollTop = editor.scrollTop;
@@ -100,7 +100,7 @@
     position: relative;
     height: 100%;
   }
-  
+
   .line-numbers {
     padding: 0.5rem 0.75rem;
     background: var(--bg-dark);
@@ -111,7 +111,7 @@
     left: 0;
     z-index: 1;
   }
-  
+
   .line-number {
     /* font-family: monospace; */
     font-size: 14px;
@@ -119,7 +119,7 @@
     text-align: right;
     min-width: 2ch;
   }
-  
+
   textarea {
     flex: 1;
     background: var(--bg);

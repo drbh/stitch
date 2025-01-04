@@ -5,13 +5,7 @@
   import ThreadList from "./lib/ThreadList.svelte";
   import ThreadComposer from "./lib/ThreadComposer.svelte";
   import DocumentPanel from "./lib/DocumentPanel.svelte";
-  import {
-    documents,
-    activeDocument,
-    activeThread,
-    panelWidth,
-    isSidebarExpanded,
-  } from "./lib/stores";
+  import { activeDocument, activeThread, panelWidth } from "./lib/stores";
   import Thread from "./lib/Thread.svelte";
   import Topbar from "./lib/Topbar.svelte";
 
@@ -55,10 +49,7 @@
 
 <style>
   :global(:root) {
-    --primary: #9c7a43;
-    /* --primary: #083f2d; */
-    /* --primary: #b35f04; */
-    /* --primary: #b35f04; */
+    --primary: #00bd9d;
     --secondary: color-mix(
       in hsl,
       var(--primary),
@@ -74,14 +65,10 @@
     --panel-width: 600px;
     --header-height: 60px;
     --column-gap: 0.5rem;
-    /* --close-red: #ff4444; */
     --close-red: #3f2e2e;
-    /* --font-family: "Reddit Mono", serif; */
-    /* --font-family: "Sono", serif; */
     --font-family: "IBM Plex Mono", serif;
 
     textarea {
-      /* or whatever container element you're using */
       touch-action: none;
       -webkit-touch-callout: none;
       -webkit-user-select: none;
@@ -103,39 +90,22 @@
   :global(body) {
     background: var(--bg);
     color: var(--text);
-    /* font-family: system-ui, sans-serif; */
-    /* font-family: "Doto", serif; */
-    /* font-family: "Reddit Mono", serif; */
-    /* font-size: 9pt; */
     font-size: 12pt;
-    /* line-height: 1.5; */
     font-family: var(--font-family);
-    /* line-height: 0.95; */
-    /* padding: var(--space); */
     overflow-x: hidden;
   }
 
   .layout-container {
     max-width: 1200px;
-    /* margin: 0 auto; */
     margin: 0 0;
-    /* transition: all 0.3s ease; */
     padding: 0 0;
   }
 
   .left-column {
     max-width: 40%;
-
-    /* z-index: 9; */
-    /* background-color: red; */
-    /* width: 100%; */
   }
 
   .panel-open {
-    /* margin-right: var(--panel-width); */
-    /* margin-right: min(var(--panel-width), 50%); */
-    /* max-width: calc(1200px - var(--panel-width)); */
-    /* margin-right: var(--current-panel-width); */
     margin-right: min(var(--current-panel-width), 70%);
   }
 

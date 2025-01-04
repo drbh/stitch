@@ -8,10 +8,6 @@ export const API_BASE =
 
 console.log(API_BASE);
 
-// Threads store
-// export const threads = writable([]);
-// export const activeThread = writable(null);
-
 // Create a new thread
 export async function createThread(
   title,
@@ -19,7 +15,7 @@ export async function createThread(
   initialPost,
   imageFile,
   before,
-  onComplete
+  onComplete,
 ) {
   before();
 
@@ -57,7 +53,7 @@ export async function createPost(
   text,
   imageFile,
   before,
-  onComplete
+  onComplete,
 ) {
   before();
 
@@ -98,7 +94,7 @@ export const fetchThreads = async () => {
         created_at: new Date(thread.created_at),
         updated_at: new Date(thread.updated_at),
         last_activity: new Date(thread.last_activity),
-      }))
+      })),
     );
   } catch (error) {
     console.error("Error fetching threads:", error);
@@ -141,57 +137,6 @@ export const deleteThread = async (id) => {
     throw error;
   }
 };
-
-// Document data store
-// export const documents = writable({});
-
-// export async function createPost(text, imageFile, before, onComplete) {
-//   before();
-//   // if (!isValid) return;
-//   // isPosting = true;
-
-//   try {
-//     const formData = new FormData();
-//     let _text = text.trim();
-//     console.log(_text);
-
-//     formData.append("text", text.trim());
-
-//     if (imageFile) {
-//       formData.append("image", imageFile);
-//     }
-//     console.log(formData);
-//     const response = await fetch(`${API_BASE}/posts`, {
-//       method: "POST",
-//       body: formData,
-//     });
-
-//     if (!response.ok) {
-//       throw new Error("Failed to create post");
-//     }
-
-//     const newPost = await response.json();
-//     posts.update((p) => [newPost, ...p]);
-
-//     // // Reset form
-//     // text = "";
-//     // charCount = 0;
-//     // imageFile = null;
-//     // imagePreview = null;
-//     // if (fileInput) {
-//     //   fileInput.value = "";
-//     // }
-
-//     // dispatch("posted");
-
-//     onComplete();
-//   } catch (error) {
-//     console.error("Error creating post:", error);
-//     alert("Failed to create post. Please try again.");
-//   } finally {
-//     // isPosting = false;
-//   }
-// }
 
 export async function createDocument(newDoc, threadId, onComplete) {
   if (!newDoc.title.trim()) return;
@@ -256,9 +201,9 @@ export async function updateDocument(updatedDoc, onComplete) {
 }
 
 // Fetch all documents
-export const fetchDocuments = async () => {
+export const fetchDocuments = async (threadId) => {
   try {
-    const response = await fetch(`${API_BASE}/documents`);
+    const response = await fetch(`${API_BASE}/threads/${threadId}/documents`);
     const data = await response.json();
     documents.set(data);
   } catch (error) {
@@ -291,9 +236,6 @@ export const removeDocument = async (id) => {
   }
 };
 
-// Posts store with new attributes
-// export const posts = writable([]);
-
 // Fetch all posts
 export const fetchPosts = async () => {
   try {
@@ -304,7 +246,7 @@ export const fetchPosts = async () => {
         ...post,
         time: new Date(post.time),
         last_viewed: post.last_viewed ? new Date(post.last_viewed) : null,
-      }))
+      })),
     );
   } catch (error) {
     console.error("Error fetching posts:", error);
@@ -339,8 +281,8 @@ export const togglePostLike = async (post) => {
       p.map((existingPost) =>
         existingPost.id === post.id
           ? { ...updatedPost, liked: !post.liked }
-          : existingPost
-      )
+          : existingPost,
+      ),
     );
   } catch (error) {
     console.error("Error toggling like:", error);
@@ -348,21 +290,13 @@ export const togglePostLike = async (post) => {
   }
 };
 
-// Active document store
-// export const activeDocument = writable(null);
-
-// Initialize data
-// fetchDocuments();
-// fetchPosts();
-// fetchThreads();
-
-// At the top where stores are created:
-const savedState = JSON.parse(localStorage.getItem("appState") || "{}");
-// const savedState = JSON.parse("{}");
+// TODO: revisit using localStorage to persist state
+// const savedState = JSON.parse(localStorage.getItem("appState") || "{}");
+const savedState = JSON.parse("{}");
 
 export const panelWidth = writable(savedState.panelWidth || 300);
 export const isSidebarExpanded = writable(
-  savedState.isSidebarExpanded || false
+  savedState.isSidebarExpanded || false,
 );
 export const threads = writable(savedState.threads || []);
 // export const threads = writable([]);
@@ -403,11 +337,12 @@ Object.entries(stores).forEach(([key, store]) => {
       JSON.stringify({
         ...currentState,
         [key]: value,
-      })
+      }),
     );
   });
 });
 
+// always fetch threads when the app loads
 fetchThreads();
 
 let previousThreadId = null;
@@ -420,10 +355,8 @@ activeThread.subscribe((thread) => {
       time: new Date(post.time),
       last_viewed: post.last_viewed ? new Date(post.last_viewed) : null,
     }));
-    console.log("POSTS", _posts);
-    // posts.set(thread.posts);
+    fetchDocuments(thread.id);
     posts.set(_posts);
-    // documents.set(thread.documents);
   }
 
   if (previousThreadId && previousThreadId !== thread.id) {
