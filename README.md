@@ -1,6 +1,7 @@
-<img width="800" alt="threadscreen" src="https://github.com/user-attachments/assets/668bf880-f073-4447-a17d-a6d1dd093707" />
-
 # thread
+
+
+<img width="1324" alt="threadscreenshot1" src="https://github.com/user-attachments/assets/5ab2cb17-6ea8-4ebf-8661-80171104a3ec" />
 
 thread is a small personal tool to track things through time.
 
