@@ -45,22 +45,71 @@
     }, []);
   }
 
-  function updateActivityChart() {
-    const now = Date.now();
-    const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+  // Helper function to get ISO week number
+  function getISOWeek(date) {
+    const target = new Date(date);
+    const dayNum = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    return Math.ceil(((target - yearStart) / 86400000 + 1) / 7);
+  }
+
+  function createActivityChart(posts) {
+    const now = new Date();
+    // if now is not a Saturday, add empty cells to fill the week and remove that number of days from the end
+    const daysToFill = 6 - now.getDay();
+    now.setDate(now.getDate() + daysToFill);
+
+    const weeks = 52;
     const msPerDay = 24 * 60 * 60 * 1000;
 
-    activityData = Array.from({ length: 52 * 7 }, (_, i) => {
-      const date = now - (52 * 7 - 1 - i) * msPerDay;
-      return {
-        date,
-        count: $posts.filter((post) => {
-          const postDay = Math.floor(post.time / msPerDay);
-          const cellDay = Math.floor(date / msPerDay);
-          return postDay === cellDay;
-        }).length,
-      };
+    // Initialize the grid with 7 rows (days) and 52 columns (weeks)
+    const grid = Array.from({ length: 7 }, () =>
+      Array.from({ length: weeks }, () => ({
+        date: null,
+        count: 0,
+        weekDay: 0,
+        dayOfWeek: 0,
+        weekOfYear: 0,
+      }))
+    );
+
+    // Fill the grid with dates and initialize counts
+    for (let week = 0; week < weeks; week++) {
+      for (let day = 0; day < 7; day++) {
+        const daysAgo = (weeks - 1 - week) * 7 + (6 - day);
+        const date = new Date(now - daysAgo * msPerDay);
+
+        grid[day][week] = {
+          date,
+          count: 0,
+          weekDay: date.getDay(),
+          dayOfWeek: day,
+          weekOfYear: getISOWeek(date),
+        };
+      }
+    }
+
+    // Count posts for each day
+    posts.forEach((post) => {
+      const postDate = new Date(post.time);
+      const daysAgo = Math.floor((now - postDate) / msPerDay);
+
+      if (daysAgo < weeks * 7) {
+        const week = Math.floor((weeks * 7 - 1 - daysAgo) / 7);
+        const day = postDate.getDay(); // + 4;
+
+        if (week >= 0 && week < weeks && grid[day][week]) {
+          grid[day][week].count++;
+        }
+      }
     });
+
+    return grid.flat();
+  }
+
+  function updateActivityChart() {
+    activityData = createActivityChart($posts);
   }
 
   function formatDate(date) {
@@ -94,6 +143,7 @@
 {#if $activeThread}
   <div class="activity-chart">
     {#each activityData as data}
+      <!-- svelte-ignore element_invalid_self_closing_tag -->
       <div
         class="activity-cell"
         class:empty={data.count === 0}
