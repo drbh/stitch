@@ -1,11 +1,7 @@
 name = "thread-again"
 compatibility_date = "2025-01-09"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "./build/client"
-
-[build]
-command = "npm run build"
-cwd = "."
+pages_build_output_dir = "build/client"
 
 [observability]
 enabled = true
