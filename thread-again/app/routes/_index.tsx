@@ -29,21 +29,31 @@ export const loader: LoaderFunction = async ({ request, context }) => {
 
   const servers = Object.keys(storageClients);
   for (const server of servers) {
-    const serverThreads = await storageClients[server].getThreads();
-    serverThreads.forEach((thread) => {
-      thread.location = server;
-    });
-    threads.push(...serverThreads);
+    try {
+      const serverThreads = await storageClients[server].getThreads();
+      serverThreads.forEach((thread) => {
+        thread.location = server;
+      });
+      threads.push(...serverThreads);
+    } catch (error) {
+      // @ts-ignore-next-line
+      console.error(`Error fetching threads from ${server}: ${error.message}`);
+    }
   }
 
   if (threadId && server) {
-    activeThread = await context.storageClients[server].getThread(
-      parseInt(threadId)
-    );
+    try {
+      activeThread = await context.storageClients[server].getThread(
+        parseInt(threadId)
+      );
 
-    if (activeThread && activeThread.posts) {
-      activeThread.posts.sort((a, b) => b.id - a.id);
-      activeThread.location = server;
+      if (activeThread && activeThread.posts) {
+        activeThread.posts.sort((a, b) => b.id - a.id);
+        activeThread.location = server;
+      }
+    } catch (error) {
+      // if the thread is not found, set activeThread to null
+      activeThread = null;
     }
   }
 
@@ -91,7 +101,7 @@ export const action: ActionFunction = async ({ request, context }) => {
     }
 
     // create the thread in the selected server
-    const newThread = await context.storageClients[location].createThread({
+    const _newThread = await context.storageClients[location].createThread({
       title,
       creator: "system",
       initial_post: content,
@@ -103,6 +113,8 @@ export const action: ActionFunction = async ({ request, context }) => {
         "Content-Type": "application/json",
       },
     });
+
+    return response;
   } else if (intent === "updateServers") {
     const servers = formData.get("servers");
 
@@ -129,17 +141,18 @@ export const action: ActionFunction = async ({ request, context }) => {
     const server = String(url.searchParams.get("s"));
 
     // create the post in the selected server
-    const newPost = await context.storageClients[server].createPost(
+    const _newPost = await context.storageClients[server].createPost(
       parseInt(threadId),
       { text: content }
     );
 
     const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
+    const response = new Response(JSON.stringify(data), {
       headers: {
         "Content-Type": "application/json",
       },
     });
+    return response;
   } else {
     return new Response(null, { status: 400 });
   }
@@ -170,6 +183,21 @@ export default function Index() {
       }
     };
     window.addEventListener("keydown", handleKeydown);
+
+    // if activeThread is set, update the URL
+    if (activeThread) {
+      const url = new URL(window.location.toString());
+      url.searchParams.set("t", String(activeThread.id));
+      url.searchParams.set("s", String(activeThread.location));
+      window.history.pushState({}, "", url);
+    } else {
+      // remove the t and s params from the URL
+      const url = new URL(window.location.toString());
+      url.searchParams.delete("t");
+      url.searchParams.delete("s");
+      window.history.pushState({}, "", url);
+    }
+
     return () => window.removeEventListener("keydown", handleKeydown);
   }, []);
 
