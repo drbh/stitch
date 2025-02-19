@@ -1,13 +1,12 @@
-
 /**
  * Interfaces to represent Threads, Posts, and Documents.
  */
 export interface Thread {
   id: number;
   title: string;
-  created_at: string;     // ISO timestamp
-  updated_at: string;     // ISO timestamp
-  last_activity: string;  // ISO timestamp
+  created_at: string; // ISO timestamp
+  updated_at: string; // ISO timestamp
+  last_activity: string; // ISO timestamp
   creator: string;
   view_count: number;
   reply_count: number;
@@ -49,13 +48,17 @@ export interface Document {
   title: string;
   content: string;
   type: string;
-  created_at: string;    // ISO timestamp
-  updated_at: string;    // ISO timestamp
-  last_viewed?: string;  // ISO timestamp
+  created_at: string; // ISO timestamp
+  updated_at: string; // ISO timestamp
+  last_viewed?: string; // ISO timestamp
   view_count: number;
 }
 
-export interface DocumentCreateData extends Omit<Document, 'id' | 'created_at' | 'updated_at' | 'last_viewed' | 'view_count'> {}
+export interface DocumentCreateData
+  extends Omit<
+    Document,
+    "id" | "created_at" | "updated_at" | "last_viewed" | "view_count"
+  > {}
 
 /**
  * The abstract ThreadClient defines the operations for managing threads,
@@ -67,7 +70,11 @@ export abstract class ThreadClient {
   abstract createThread(data: ThreadCreateData): Promise<Thread>;
   abstract deleteThread(threadId: number): Promise<void>;
 
-  abstract createPost(threadId: number, data: PostCreateData, author?: string): Promise<Post>;
+  abstract createPost(
+    threadId: number,
+    data: PostCreateData,
+    author?: string
+  ): Promise<Post>;
   abstract getPosts(threadId: number): Promise<Post[]>;
 
   // TODO: document operations
@@ -77,5 +84,15 @@ export abstract class ThreadClient {
   // abstract deleteDocument(docId: string): Promise<void>;
 }
 
-
 export type StorageClients = Record<string, ThreadClient>;
+
+/**
+ * Represents a backend connection to a storage server.
+ */
+export interface BackendConnection {
+  id: string;
+  name: string;
+  url: string;
+  token: string;
+  isActive: boolean;
+}

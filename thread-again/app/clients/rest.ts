@@ -11,15 +11,40 @@ import {
  * It exposes the same methods as the local (SQLite) client so you can swap them interchangeably.
  */
 export class RestThreadClient extends ThreadClient {
-  constructor(private baseURL: string = "http://localhost:8000") {
+  private apiKey?: string;
+
+  constructor(
+    private baseURL: string = "http://localhost:8000",
+    apiKey?: string
+  ) {
     super();
+    this.apiKey = apiKey;
+  }
+
+  /**
+   * Internal method to make requests with consistent headers
+   */
+  private async makeRequest(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<Response> {
+    const headers = new Headers(options.headers);
+
+    if (this.apiKey) {
+      headers.set("Authorization", `Bearer ${this.apiKey}`);
+    }
+
+    return fetch(`${this.baseURL}${endpoint}`, {
+      ...options,
+      headers,
+    });
   }
 
   /**
    * Retrieves all threads.
    */
   async getThreads(): Promise<Thread[]> {
-    const response = await fetch(`${this.baseURL}/api/threads`);
+    const response = await this.makeRequest("/api/threads");
     if (!response.ok) {
       throw new Error(await response.text());
     }
@@ -30,7 +55,7 @@ export class RestThreadClient extends ThreadClient {
    * Retrieves a single thread (with posts and documents) by ID.
    */
   async getThread(threadId: number): Promise<Thread | null> {
-    const response = await fetch(`${this.baseURL}/api/threads/${threadId}`);
+    const response = await this.makeRequest(`/api/threads/${threadId}`);
     if (response.status === 404) {
       return null;
     }
@@ -41,20 +66,18 @@ export class RestThreadClient extends ThreadClient {
   }
 
   /**
-   * Creates a new thread. We use FormData because the FastAPI endpoint for creating threads
-   * expects form data (and optionally an UploadFile for the image).
+   * Creates a new thread with form data support.
    */
   async createThread(data: ThreadCreateData): Promise<Thread> {
     const formData = new FormData();
     formData.append("title", data.title);
     formData.append("creator", data.creator);
     formData.append("initial_post", data.initial_post);
-    // If an image is provided, append it (it could be a File or a string)
     if (data.image) {
       formData.append("image", data.image);
     }
 
-    const response = await fetch(`${this.baseURL}/api/threads`, {
+    const response = await this.makeRequest("/api/threads", {
       method: "POST",
       body: formData,
     });
@@ -68,7 +91,7 @@ export class RestThreadClient extends ThreadClient {
    * Deletes a thread by its ID.
    */
   async deleteThread(threadId: number): Promise<void> {
-    const response = await fetch(`${this.baseURL}/api/threads/${threadId}`, {
+    const response = await this.makeRequest(`/api/threads/${threadId}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -78,8 +101,6 @@ export class RestThreadClient extends ThreadClient {
 
   /**
    * Creates a new post in a thread.
-   * If the author is 'system', we use the JSON endpoint;
-   * otherwise, we send form data.
    */
   async createPost(
     threadId: number,
@@ -87,9 +108,8 @@ export class RestThreadClient extends ThreadClient {
     author: string = "user"
   ): Promise<Post> {
     if (author === "system") {
-      // Use the JSON endpoint
-      const response = await fetch(
-        `${this.baseURL}/api/system/threads/${threadId}/posts`,
+      const response = await this.makeRequest(
+        `/api/system/threads/${threadId}/posts`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -101,14 +121,13 @@ export class RestThreadClient extends ThreadClient {
       }
       return await response.json();
     } else {
-      // Use the form-data endpoint
       const formData = new FormData();
       formData.append("text", data.text);
       if (data.image) {
         formData.append("image", data.image);
       }
-      const response = await fetch(
-        `${this.baseURL}/api/threads/${threadId}/posts`,
+      const response = await this.makeRequest(
+        `/api/threads/${threadId}/posts`,
         {
           method: "POST",
           body: formData,
@@ -125,9 +144,7 @@ export class RestThreadClient extends ThreadClient {
    * Retrieves all posts for a given thread.
    */
   async getPosts(threadId: number): Promise<Post[]> {
-    const response = await fetch(
-      `${this.baseURL}/api/threads/${threadId}/posts`
-    );
+    const response = await this.makeRequest(`/api/threads/${threadId}/posts`);
     if (!response.ok) {
       throw new Error(await response.text());
     }

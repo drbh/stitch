@@ -2,12 +2,14 @@ import React, { useState, useEffect } from "react";
 import type { LoaderFunction, ActionFunction } from "@remix-run/cloudflare";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { clientMiddleware } from "~/middleware/storageClient";
-import type { Thread } from "~/clients/types";
+import type { Thread, BackendConnection } from "~/clients/types";
+import SettingsModal from "~/components/SettingsModal";
 
 type LoaderData = {
   threads: Thread[];
   activeThread: Thread | null;
   servers: string[];
+  backendMetadata: BackendConnection[];
 };
 
 export const loader: LoaderFunction = async ({ request, context }) => {
@@ -21,6 +23,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   // inplace update the clientMiddleware
   await clientMiddleware(request, context);
   const storageClients = context.storageClients;
+  const backendsJson = context.backendsJson;
 
   // if storageClients not in context, return empty threads
   if (!storageClients) {
@@ -67,10 +70,18 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     "Max-Age=31536000",
   ];
 
+  const backendMetadata = backendsJson.map((backend) => {
+    const { id, name, url, token, isActive } = backend;
+    const hiddenToken = null;
+    // TODO: handle something like - token ? "*".repeat(32) : "";
+    return { id, name, url, token: hiddenToken, isActive };
+  });
+
   const data: LoaderData = {
     threads: threads,
     activeThread,
     servers,
+    backendMetadata,
   };
 
   // Create response using Response.json()
@@ -115,25 +126,6 @@ export const action: ActionFunction = async ({ request, context }) => {
     });
 
     return response;
-  } else if (intent === "updateServers") {
-    const servers = formData.get("servers");
-
-    // update the cookies so we can use the new servers
-    const cookieOptions = [
-      `servers=${servers}`,
-      "Path=/",
-      "HttpOnly",
-      "Secure",
-      "SameSite=Strict",
-      "Max-Age=31536000",
-    ];
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": cookieOptions.join("; "),
-      },
-    });
   } else if (intent === "createPost") {
     const content = String(formData.get("content"));
     const url = new URL(request.url);
@@ -153,13 +145,40 @@ export const action: ActionFunction = async ({ request, context }) => {
       },
     });
     return response;
+  } else if (intent === "updateBackends") {
+    const jsonString = formData.getAll("backends");
+    if (!jsonString) {
+      return new Response(null, { status: 400 });
+    }
+    const backends = JSON.parse(String(jsonString));
+    // serialize and base64 encode the backends
+    // const serverData = btoa(JSON.stringify(backends));
+    const serverData = JSON.stringify(backends);
+
+    // update the cookies so we can use the new servers
+    const cookieOptions = [
+      `backends=${serverData}`,
+      "Path=/",
+      "HttpOnly",
+      "Secure",
+      "SameSite=Strict",
+      "Max-Age=31536000",
+    ];
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookieOptions.join("; "),
+      },
+    });
   } else {
     return new Response(null, { status: 400 });
   }
 };
 
 export default function Index() {
-  const { threads, activeThread, servers } = useLoaderData<LoaderData>();
+  const { threads, activeThread, servers, backendMetadata } =
+    useLoaderData<LoaderData>();
 
   const setActiveThread = (thread: Thread | null) => {
     const url = new URL(window.location.toString());
@@ -214,7 +233,12 @@ export default function Index() {
         <MainContent activeThread={activeThread} />
         {/* <DocumentPanel /> */}
       </div>
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          backendMetadata={backendMetadata}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }
@@ -476,69 +500,6 @@ function DocumentPanel() {
         Documents
       </h2>
       <p className="text-content-tertiary">Document Panel (stub)</p>
-    </div>
-  );
-}
-
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  const fetcher = useFetcher<{ success: boolean }>();
-  const [servers, setServers] = useState("");
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    fetcher.submit(
-      {
-        intent: "updateServers",
-        servers,
-      },
-      { method: "post" }
-    );
-  };
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.success) {
-      onClose();
-    }
-  }, [fetcher.data, servers, onClose]);
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg- opacity-50" onClick={onClose}></div>
-      <div className="bg-surface-secondary p-6 rounded-lg shadow-lg z-10 w-96">
-        <h2 className="text-xl font-bold mb-4">Settings</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium">
-              Servers (comma separated)
-            </label>
-            <small className="text-xs text-content-tertiary">
-              Example: local,http://localhost:8000
-            </small>
-            <input
-              type="text"
-              name="servers"
-              value={servers}
-              onChange={(e) => setServers(e.target.value)}
-              className="mt-2 w-full border border-border rounded p-2 bg-surface-tertiary"
-            />
-          </div>
-          <div className="flex justify-end space-x-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded bg-gray-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 rounded bg-blue-500 text-white"
-            >
-              Save
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }
