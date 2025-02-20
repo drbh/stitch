@@ -1,0 +1,14 @@
+name = "cloudflare-d1-thread-server"
+main = "src/index.ts"
+compatibility_date = "2025-02-14"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "test-db"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[vars]
+API_KEY = "your-secure-api-key-here"

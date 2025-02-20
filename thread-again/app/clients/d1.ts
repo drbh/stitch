@@ -52,7 +52,7 @@ export class D1ThreadClient extends ThreadClient {
   }
 
   /**
-   * Creates the necessary tables (threads, posts, documents).
+   * Creates the necessary tables (threads, posts, documents, webhooks).
    */
   private async createTables(): Promise<void> {
     await this.d1
@@ -106,6 +106,23 @@ export class D1ThreadClient extends ThreadClient {
         updated_at TEXT DEFAULT (datetime('now')),
         last_viewed TEXT,
         view_count INTEGER DEFAULT 0,
+        FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      );
+    `
+      )
+      .run();
+
+    await this.d1
+      .prepare(
+        `
+      CREATE TABLE IF NOT EXISTS webhooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        api_key TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        last_triggered TEXT,
         FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
       );
     `
@@ -182,7 +199,7 @@ export class D1ThreadClient extends ThreadClient {
   }
 
   /**
-   * Delete a thread (its posts and documents will be removed via cascade).
+   * Delete a thread (its posts, documents, and webhooks will be removed via cascade).
    */
   async deleteThread(threadId: number): Promise<void> {
     await this.d1
@@ -249,5 +266,184 @@ export class D1ThreadClient extends ThreadClient {
     return (result.results as Post[]) || [];
   }
 
-  // TODO: add document-related methods following the same pattern.
+  /**
+   * Add a webhook for a thread.
+   */
+  async addWebhook(
+    threadId: number,
+    url: string,
+    apiKey?: string
+  ): Promise<void> {
+    const stmt = this.d1.prepare(`
+      INSERT INTO webhooks (thread_id, url, api_key)
+      VALUES (?, ?, ?)
+    `);
+    await stmt.bind(threadId, url, apiKey || null).run();
+  }
+
+  /**
+   * Remove a webhook from a thread.
+   */
+  async removeWebhook(webhookId: number): Promise<void> {
+    await this.d1
+      .prepare("DELETE FROM webhooks WHERE id = ?")
+      .bind(webhookId)
+      .run();
+  }
+
+  /**
+   * Get all webhooks for a thread.
+   */
+  async getThreadWebhooks(threadId: number): Promise<any[]> {
+    const stmt = this.d1.prepare(
+      "SELECT * FROM webhooks WHERE thread_id = ? ORDER BY created_at"
+    );
+    const result = await stmt.bind(threadId).all();
+    return result.results || [];
+  }
+
+  /**
+   * Update a webhook's last triggered timestamp.
+   */
+  async updateWebhookLastTriggered(webhookId: number): Promise<void> {
+    await this.d1
+      .prepare(
+        "UPDATE webhooks SET last_triggered = datetime('now') WHERE id = ?"
+      )
+      .bind(webhookId)
+      .run();
+  }
+
+  /**
+   * Create a new document in a thread.
+   */
+  async createDocument(
+    threadId: number,
+    data: {
+      id: string;
+      title: string;
+      content: string;
+      type: string;
+    }
+  ): Promise<Document> {
+    // Verify the thread exists
+    const threadStmt = this.d1.prepare("SELECT * FROM threads WHERE id = ?");
+    const thread = await threadStmt.bind(threadId).first();
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+
+    const stmt = this.d1.prepare(`
+      INSERT INTO documents (id, thread_id, title, content, type)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = await stmt
+      .bind(data.id, threadId, data.title, data.content, data.type)
+      .run();
+
+    if (!result.success) {
+      throw new Error("Document creation failed");
+    }
+
+    const document = await this.getDocument(data.id);
+    if (!document) {
+      throw new Error("Error retrieving document after creation");
+    }
+    return document;
+  }
+
+  /**
+   * Retrieve a document by its ID.
+   * Increments the document's view count.
+   */
+  async getDocument(documentId: string): Promise<Document | null> {
+    const stmt = this.d1.prepare("SELECT * FROM documents WHERE id = ?");
+    const document = (await stmt.bind(documentId).first()) as
+      | Document
+      | undefined;
+    if (!document) return null;
+
+    // Update view count and last viewed timestamp
+    await this.d1
+      .prepare(
+        "UPDATE documents SET view_count = view_count + 1, last_viewed = datetime('now') WHERE id = ?"
+      )
+      .bind(documentId)
+      .run();
+
+    return document;
+  }
+
+  /**
+   * Update an existing document.
+   */
+  async updateDocument(
+    documentId: string,
+    data: {
+      title?: string;
+      content?: string;
+      type?: string;
+    }
+  ): Promise<Document> {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (data.title !== undefined) {
+      updates.push("title = ?");
+      values.push(data.title);
+    }
+    if (data.content !== undefined) {
+      updates.push("content = ?");
+      values.push(data.content);
+    }
+    if (data.type !== undefined) {
+      updates.push("type = ?");
+      values.push(data.type);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No updates provided");
+    }
+
+    updates.push("updated_at = datetime('now')");
+    values.push(documentId);
+
+    const stmt = this.d1.prepare(`
+      UPDATE documents
+      SET ${updates.join(", ")}
+      WHERE id = ?
+    `);
+    const result = await stmt.bind(...values).run();
+
+    if (!result.success) {
+      throw new Error("Document update failed");
+    }
+
+    const document = await this.getDocument(documentId);
+    if (!document) {
+      throw new Error("Error retrieving document after update");
+    }
+    return document;
+  }
+
+  /**
+   * Delete a document.
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    await this.d1
+      .prepare("DELETE FROM documents WHERE id = ?")
+      .bind(documentId)
+      .run();
+  }
+
+  /**
+   * Get all documents for a thread.
+   */
+  async getThreadDocuments(threadId: number): Promise<Document[]> {
+    const stmt = this.d1.prepare(
+      "SELECT * FROM documents WHERE thread_id = ? ORDER BY created_at"
+    );
+    const result = await stmt.bind(threadId).all();
+    return (result.results as Document[]) || [];
+  }
 }

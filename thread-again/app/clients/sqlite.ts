@@ -83,6 +83,19 @@ export class SqliteThreadClient extends ThreadClient {
         FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
       );
     `);
+    // Create webhooks table.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS webhooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        api_key TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        last_triggered TEXT,
+        FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      );
+    `);
   }
 
   /**
@@ -152,7 +165,7 @@ export class SqliteThreadClient extends ThreadClient {
   }
 
   /**
-   * Delete a thread (and its related posts/documents via cascade).
+   * Delete a thread (and its related posts/documents/webhooks via cascade).
    */
   async deleteThread(threadId: number): Promise<void> {
     await this.db.run(`DELETE FROM threads WHERE id = ?`, threadId);
@@ -184,7 +197,7 @@ export class SqliteThreadClient extends ThreadClient {
       data.image || null,
       0 // default is_initial_post flag is false
     );
-    // Update the thread’s reply count and last activity.
+    // Update the thread's reply count and last activity.
     await this.db.run(
       `UPDATE threads SET reply_count = reply_count + 1, last_activity = datetime('now') WHERE id = ?`,
       threadId
@@ -210,9 +223,175 @@ export class SqliteThreadClient extends ThreadClient {
     );
   }
 
-  // TODO: implement document methods similarly:
-  // async createDocument(data: DocumentCreateData): Promise<Document> { ... }
-  // async getDocument(docId: string): Promise<Document | null> { ... }
-  // async updateDocument(docId: string, data: DocumentCreateData): Promise<Document> { ... }
-  // async deleteDocument(docId: string): Promise<void> { ... }
+  /**
+   * Create a new document in a thread.
+   */
+  async createDocument(
+    threadId: number,
+    data: {
+      id: string;
+      title: string;
+      content: string;
+      type: string;
+    }
+  ): Promise<Document> {
+    // Verify the thread exists
+    const thread = await this.db.get(
+      `SELECT * FROM threads WHERE id = ?`,
+      threadId
+    );
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+
+    await this.db.run(
+      `INSERT INTO documents (id, thread_id, title, content, type)
+       VALUES (?, ?, ?, ?, ?)`,
+      data.id,
+      threadId,
+      data.title,
+      data.content,
+      data.type
+    );
+
+    const document = await this.getDocument(data.id);
+    if (!document) {
+      throw new Error("Error creating document");
+    }
+    return document;
+  }
+
+  /**
+   * Retrieve a document by its ID.
+   * Increments the document's view count.
+   */
+  async getDocument(documentId: string): Promise<Document | null> {
+    const document = await this.db.get<Document>(
+      `SELECT * FROM documents WHERE id = ?`,
+      documentId
+    );
+    if (!document) return null;
+
+    // Update view count and last viewed timestamp
+    await this.db.run(
+      `UPDATE documents
+       SET view_count = view_count + 1,
+           last_viewed = datetime('now')
+       WHERE id = ?`,
+      documentId
+    );
+
+    return document;
+  }
+
+  /**
+   * Update an existing document.
+   */
+  async updateDocument(
+    documentId: string,
+    data: {
+      title?: string;
+      content?: string;
+      type?: string;
+    }
+  ): Promise<Document> {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (data.title !== undefined) {
+      updates.push("title = ?");
+      values.push(data.title);
+    }
+    if (data.content !== undefined) {
+      updates.push("content = ?");
+      values.push(data.content);
+    }
+    if (data.type !== undefined) {
+      updates.push("type = ?");
+      values.push(data.type);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No updates provided");
+    }
+
+    updates.push("updated_at = datetime('now')");
+    values.push(documentId);
+
+    await this.db.run(
+      `UPDATE documents
+       SET ${updates.join(", ")}
+       WHERE id = ?`,
+      ...values
+    );
+
+    const document = await this.getDocument(documentId);
+    if (!document) {
+      throw new Error("Error updating document");
+    }
+    return document;
+  }
+
+  /**
+   * Delete a document.
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    await this.db.run(`DELETE FROM documents WHERE id = ?`, documentId);
+  }
+
+  /**
+   * Get all documents for a thread.
+   */
+  async getThreadDocuments(threadId: number): Promise<Document[]> {
+    return await this.db.all<Document[]>(
+      `SELECT * FROM documents WHERE thread_id = ? ORDER BY created_at`,
+      threadId
+    );
+  }
+
+  /**
+   * Add a webhook for a thread.
+   */
+  async addWebhook(
+    threadId: number,
+    url: string,
+    apiKey?: string
+  ): Promise<void> {
+    await this.db.run(
+      `INSERT INTO webhooks (thread_id, url, api_key)
+       VALUES (?, ?, ?)`,
+      threadId,
+      url,
+      apiKey || null
+    );
+  }
+
+  /**
+   * Remove a webhook from a thread.
+   */
+  async removeWebhook(webhookId: number): Promise<void> {
+    await this.db.run(`DELETE FROM webhooks WHERE id = ?`, webhookId);
+  }
+
+  /**
+   * Get all webhooks for a thread.
+   */
+  async getThreadWebhooks(threadId: number): Promise<any[]> {
+    return await this.db.all(
+      `SELECT * FROM webhooks WHERE thread_id = ? ORDER BY created_at`,
+      threadId
+    );
+  }
+
+  /**
+   * Update a webhook's last triggered timestamp.
+   */
+  async updateWebhookLastTriggered(webhookId: number): Promise<void> {
+    await this.db.run(
+      `UPDATE webhooks
+       SET last_triggered = datetime('now')
+       WHERE id = ?`,
+      webhookId
+    );
+  }
 }

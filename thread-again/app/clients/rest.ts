@@ -4,6 +4,10 @@ import {
   ThreadCreateData,
   Post,
   PostCreateData,
+  Document,
+  DocumentCreateData,
+  DocumentUpdateData,
+  Webhook,
 } from "./types";
 
 /**
@@ -40,9 +44,8 @@ export class RestThreadClient extends ThreadClient {
     });
   }
 
-  /**
-   * Retrieves all threads.
-   */
+  // Thread Management
+
   async getThreads(): Promise<Thread[]> {
     const response = await this.makeRequest("/api/threads");
     if (!response.ok) {
@@ -51,9 +54,6 @@ export class RestThreadClient extends ThreadClient {
     return await response.json();
   }
 
-  /**
-   * Retrieves a single thread (with posts and documents) by ID.
-   */
   async getThread(threadId: number): Promise<Thread | null> {
     const response = await this.makeRequest(`/api/threads/${threadId}`);
     if (response.status === 404) {
@@ -65,9 +65,6 @@ export class RestThreadClient extends ThreadClient {
     return await response.json();
   }
 
-  /**
-   * Creates a new thread with form data support.
-   */
   async createThread(data: ThreadCreateData): Promise<Thread> {
     const formData = new FormData();
     formData.append("title", data.title);
@@ -87,9 +84,6 @@ export class RestThreadClient extends ThreadClient {
     return await response.json();
   }
 
-  /**
-   * Deletes a thread by its ID.
-   */
   async deleteThread(threadId: number): Promise<void> {
     const response = await this.makeRequest(`/api/threads/${threadId}`, {
       method: "DELETE",
@@ -99,9 +93,8 @@ export class RestThreadClient extends ThreadClient {
     }
   }
 
-  /**
-   * Creates a new post in a thread.
-   */
+  // Post Management
+
   async createPost(
     threadId: number,
     data: PostCreateData,
@@ -140,14 +133,145 @@ export class RestThreadClient extends ThreadClient {
     }
   }
 
-  /**
-   * Retrieves all posts for a given thread.
-   */
   async getPosts(threadId: number): Promise<Post[]> {
     const response = await this.makeRequest(`/api/threads/${threadId}/posts`);
     if (!response.ok) {
       throw new Error(await response.text());
     }
     return await response.json();
+  }
+
+  async getPost(postId: number): Promise<Post> {
+    const response = await this.makeRequest(`/api/posts/${postId}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async updatePost(
+    postId: number,
+    data: { text: string; image?: File }
+  ): Promise<Post> {
+    const response = await this.makeRequest(`/api/posts/${postId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async deletePost(postId: number): Promise<void> {
+    const response = await this.makeRequest(`/api/posts/${postId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  }
+
+  // Document Management
+
+  async getThreadDocuments(threadId: number): Promise<Document[]> {
+    const response = await this.makeRequest(
+      `/api/threads/${threadId}/documents`
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async createDocument(
+    threadId: number,
+    data: DocumentCreateData
+  ): Promise<Document> {
+    const response = await this.makeRequest("/api/documents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...data, thread_id: threadId }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async getDocument(docId: string): Promise<Document | null> {
+    const response = await this.makeRequest(`/api/documents/${docId}`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async updateDocument(
+    docId: string,
+    data: DocumentUpdateData
+  ): Promise<Document> {
+    const response = await this.makeRequest(`/api/documents/${docId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async deleteDocument(docId: string): Promise<void> {
+    const response = await this.makeRequest(`/api/documents/${docId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  }
+
+  // Webhook Management
+
+  async getThreadWebhooks(threadId: number): Promise<Webhook[]> {
+    const response = await this.makeRequest(
+      `/api/threads/${threadId}/webhooks`
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async addWebhook(
+    threadId: number,
+    url: string,
+    apiKey?: string
+  ): Promise<Webhook> {
+    const response = await this.makeRequest(
+      `/api/threads/${threadId}/webhooks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, api_key: apiKey }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async removeWebhook(webhookId: number): Promise<void> {
+    const response = await this.makeRequest(`/api/webhooks/${webhookId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
   }
 }

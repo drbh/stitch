@@ -53,6 +53,18 @@ export const loader: LoaderFunction = async ({ request, context }) => {
       if (activeThread && activeThread.posts) {
         activeThread.posts.sort((a, b) => b.id - a.id);
         activeThread.location = server;
+
+        // get all the webhooks for the active thread
+        const webhooks = await context.storageClients[server].getThreadWebhooks(
+          parseInt(threadId)
+        );
+        activeThread.webhooks = webhooks;
+
+        // get all the documents for the active thread
+        const documents = await context.storageClients[
+          server
+        ].getThreadDocuments(parseInt(threadId));
+        activeThread.documents = documents;
       }
     } catch (error) {
       // if the thread is not found, set activeThread to null
@@ -169,6 +181,120 @@ export const action: ActionFunction = async ({ request, context }) => {
       headers: {
         "Content-Type": "application/json",
         "Set-Cookie": cookieOptions.join("; "),
+      },
+    });
+  } else if (intent === "createWebhook") {
+    const url = String(formData.get("url"));
+    const secret = String(formData.get("secret"));
+    const threadId = String(new URL(request.url).searchParams.get("t"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!url) {
+      return new Response(null, { status: 400 });
+    }
+
+    // addWebhook
+    const _newWebhook = await context.storageClients[server].addWebhook(
+      parseInt(threadId),
+      url,
+      secret
+    );
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "removeWebhook") {
+    const webhookId = String(formData.get("webhookId"));
+    const threadId = String(new URL(request.url).searchParams.get("t"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!webhookId) {
+      return new Response(null, { status: 400 });
+    }
+
+    await context.storageClients[server].removeWebhook(parseInt(webhookId));
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "createDocument") {
+    const title = String(formData.get("title"));
+    const content = String(formData.get("content"));
+    const threadId = String(new URL(request.url).searchParams.get("t"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!title || !content) {
+      return new Response(null, { status: 400 });
+    }
+
+    // createDocument
+    const _newDocument = await context.storageClients[server].createDocument(
+      parseInt(threadId),
+      { title, content, type: "text" }
+    );
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "deleteDocument") {
+    const docId = String(formData.get("docId"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!docId) {
+      return new Response(null, { status: 400 });
+    }
+
+    // deleteDocument
+    await context.storageClients[server].deleteDocument(docId);
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "deleteThread") {
+    const threadId = String(formData.get("threadId"));
+    const server = String(formData.get("server"));
+
+    if (!threadId || !server) {
+      return new Response(null, { status: 400 });
+    }
+
+    // deleteThread
+    await context.storageClients[server].deleteThread(parseInt(threadId));
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  }
+  if (intent === "deletePost") {
+    const postId = String(formData.get("postId"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!postId) {
+      return new Response(null, { status: 400 });
+    }
+
+    // deletePost
+    await context.storageClients[server].deletePost(parseInt(postId));
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
       },
     });
   } else {
@@ -363,6 +489,34 @@ function ThreadList({
   activeThread: Thread | null;
   setActiveThread: (thread: Thread | null) => void;
 }) {
+  const fetcher = useFetcher<{ success: boolean }>();
+
+  const handleThreadDelete = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const url = new URL(window.location.toString());
+    const threadId = url.searchParams.get("t");
+    const server = url.searchParams.get("s");
+
+    if (!threadId || !server) {
+      return;
+    }
+
+    fetcher.submit(
+      {
+        intent: "deleteThread",
+        threadId,
+        server,
+      },
+      { method: "delete" }
+    );
+  };
+
+  useEffect(() => {
+    if (fetcher.data && fetcher.data.success) {
+      setActiveThread(null);
+    }
+  }, [fetcher.data]);
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-content-accent">Threads</h2>
@@ -389,6 +543,12 @@ function ThreadList({
                 </span>
               )}
             </div>
+            <button
+              className="text-xs text-content-accent hover:underline"
+              onClick={handleThreadDelete}
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>
@@ -401,6 +561,14 @@ function MainContent({ activeThread }: { activeThread: Thread | null }) {
     <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto bg-surface-primary p-6">
       {activeThread ? (
         <div className="max-w-3xl mx-auto space-y-6">
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-content-accent">
+              {activeThread.title}
+            </h2>
+            <p className="text-content-secondary">
+              {activeThread.last_activity}
+            </p>
+          </div>
           <PostComposer />
           <Thread thread={activeThread} />
         </div>
@@ -414,37 +582,216 @@ function MainContent({ activeThread }: { activeThread: Thread | null }) {
 }
 
 function Thread({ thread }: { thread: Thread }) {
-  return (
-    <div className="bg-surface-secondary rounded-lg shadow-lg p-6 space-y-6">
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-content-accent">
-          {thread.title}
-        </h2>
-        <p className="text-content-secondary">{thread.last_activity}</p>
-      </div>
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-content-accent">Replies</h3>
-        {thread.posts && thread.posts.length > 0 ? (
-          <ul className="space-y-4">
-            {thread.posts.map((post) => (
-              <li key={post.id} className="bg-surface-tertiary p-4 rounded-lg">
-                <div>{post.author}</div>
-                <div>{post.time}</div>
-                {post.image && (
-                  <img
-                    src={post.image}
-                    alt="Post Image"
-                    className="w-full rounded-lg mb-4 max-w-xs"
-                  />
-                )}
+  const fetcher = useFetcher<{ success: boolean }>();
 
-                <div>{post.text}</div>
+  const handleWebhookSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const url = form[0].value;
+    const secret = form[1].value || "";
+    if (!url) return;
+
+    fetcher.submit(
+      {
+        intent: "createWebhook",
+        url,
+        secret,
+      },
+      { method: "post" }
+    );
+  };
+
+  const handleWebhookRemove = (e: React.MouseEvent, webhookId: number) => {
+    e.preventDefault();
+    fetcher.submit(
+      {
+        intent: "removeWebhook",
+        webhookId,
+      },
+      { method: "delete" }
+    );
+  };
+
+  const handleDocumentSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const title = form[0].value;
+    const content = form[1].value;
+    if (!title || !content) return;
+
+    fetcher.submit(
+      {
+        intent: "createDocument",
+        title,
+        content,
+      },
+      { method: "post" }
+    );
+  };
+
+  const handleDocumentRemove = (e: React.MouseEvent, docId: string) => {
+    e.preventDefault();
+    fetcher.submit(
+      {
+        intent: "deleteDocument",
+        docId,
+      },
+      { method: "delete" }
+    );
+  };
+
+  const handlePostDelete = (e: React.MouseEvent, postId: number) => {
+    e.preventDefault();
+    fetcher.submit(
+      {
+        intent: "deletePost",
+        postId,
+      },
+      { method: "delete" }
+    );
+  };
+
+  useEffect(() => {
+    if (fetcher.data && fetcher.data.success) {
+      // TODO: clear form fields
+      console.log("success");
+    }
+  }, [fetcher.data]);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-surface-secondary rounded-lg shadow-lg p-6 space-y-6">
+        <h2 className="text-lg font-semibold text-content-accent">Documents</h2>
+        {thread.documents && thread.documents.length > 0 ? (
+          <ul className="space-y-4">
+            {thread.documents.map((document, index) => (
+              <li
+                key={document.id}
+                className="bg-surface-tertiary p-4 rounded-lg"
+              >
+                <div>{document.title}</div>
+                <div>{document.content}</div>
+                <button
+                  className="text-xs text-content-accent hover:underline"
+                  onClick={(e) => handleDocumentRemove(e, document.id)}
+                >
+                  Delete
+                </button>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-content-tertiary">No replies yet.</p>
+          <p className="text-content-tertiary">No documents configured.</p>
         )}
+
+        {/* add new document form */}
+        <h3 className="text-lg font-semibold text-content-accent">
+          Add Document
+        </h3>
+        <form className="space-y-4" onSubmit={handleDocumentSubmit}>
+          <input
+            type="text"
+            placeholder="Document Title"
+            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+          />
+          <textarea
+            placeholder="Document Content"
+            required={false}
+            className="w-full px-4 py-2 h-32 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
+          />
+          <button
+            type="submit"
+            className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
+          >
+            Add Document
+          </button>
+        </form>
+      </div>
+
+      <div className="bg-surface-secondary rounded-lg shadow-lg p-6 space-y-6">
+        <h2 className="text-lg font-semibold text-content-accent">Webhooks</h2>
+        {thread.webhooks && thread.webhooks.length > 0 ? (
+          <ul className="space-y-4">
+            {thread.webhooks.map((webhook, index) => (
+              <li
+                key={webhook.id}
+                className="bg-surface-tertiary p-4 rounded-lg"
+              >
+                <div>{webhook.url}</div>
+                <div>{webhook.secret}</div>
+                <button
+                  className="text-xs text-content-accent hover:underline"
+                  onClick={(e) => handleWebhookRemove(e, webhook.id)}
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-content-tertiary">No webhooks configured.</p>
+        )}
+
+        <h3 className="text-lg font-semibold text-content-accent">
+          Add Webhook
+        </h3>
+        <form className="space-y-4" onSubmit={handleWebhookSubmit}>
+          <input
+            type="text"
+            placeholder="Webhook URL"
+            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Webhook Secret"
+            required={false}
+            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+          />
+          <button
+            type="submit"
+            className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
+          >
+            Add Webhook
+          </button>
+        </form>
+      </div>
+
+      {/* posts */}
+      <div className="bg-surface-secondary rounded-lg shadow-lg p-6 space-y-6">
+        <h2 className="text-lg font-semibold text-content-accent">Posts</h2>
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-content-accent">Replies</h3>
+          {thread.posts && thread.posts.length > 0 ? (
+            <ul className="space-y-4">
+              {thread.posts.map((post) => (
+                <li
+                  key={post.id}
+                  className="bg-surface-tertiary p-4 rounded-lg"
+                >
+                  <div>{post.author}</div>
+                  <div>{post.time}</div>
+                  {post.image && (
+                    <img
+                      src={post.image}
+                      alt="Post Image"
+                      className="w-full rounded-lg mb-4 max-w-xs"
+                    />
+                  )}
+
+                  <div>{post.text}</div>
+                  <button
+                    className="text-xs text-content-accent hover:underline"
+                    onClick={(e) => handlePostDelete(e, post.id)}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-content-tertiary">No replies yet.</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -474,7 +821,7 @@ function PostComposer() {
 
   return (
     <div className="bg-surface-secondary rounded-lg shadow-lg p-6 space-y-4">
-      <h2 className="text-lg font-semibold text-content-accent">Add a Reply</h2>
+      <h2 className="text-lg font-semibold text-content-accent">New Post</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <textarea
           placeholder="Write your reply..."

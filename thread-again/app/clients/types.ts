@@ -14,6 +14,7 @@ export interface Thread {
   documents?: Document[];
 
   location?: string;
+  webhooks?: Webhook[];
 }
 
 export interface ThreadCreateData {
@@ -62,26 +63,50 @@ export interface DocumentCreateData
 
 /**
  * The abstract ThreadClient defines the operations for managing threads,
- * posts, and documents.
+ * posts, documents, and webhooks.
  */
 export abstract class ThreadClient {
+  // Thread operations
   abstract getThreads(): Promise<Thread[]>;
   abstract getThread(threadId: number): Promise<Thread | null>;
   abstract createThread(data: ThreadCreateData): Promise<Thread>;
   abstract deleteThread(threadId: number): Promise<void>;
 
+  // Post operations
   abstract createPost(
     threadId: number,
     data: PostCreateData,
     author?: string
   ): Promise<Post>;
   abstract getPosts(threadId: number): Promise<Post[]>;
+  abstract getPost(postId: number): Promise<Post>;
+  abstract updatePost(
+    postId: number,
+    data: { text: string; image?: File }
+  ): Promise<Post>;
+  abstract deletePost(postId: number): Promise<void>;
 
-  // TODO: document operations
-  // abstract createDocument(data: DocumentCreateData): Promise<Document>;
-  // abstract getDocument(docId: string): Promise<Document | null>;
-  // abstract updateDocument(docId: string, data: DocumentCreateData): Promise<Document>;
-  // abstract deleteDocument(docId: string): Promise<void>;
+  // Document operations
+  abstract getThreadDocuments(threadId: number): Promise<Document[]>;
+  abstract createDocument(
+    threadId: number,
+    data: DocumentCreateData
+  ): Promise<Document>;
+  abstract getDocument(docId: string): Promise<Document | null>;
+  abstract updateDocument(
+    docId: string,
+    data: DocumentUpdateData
+  ): Promise<Document>;
+  abstract deleteDocument(docId: string): Promise<void>;
+
+  // Webhook operations
+  abstract getThreadWebhooks(threadId: number): Promise<Webhook[]>;
+  abstract addWebhook(
+    threadId: number,
+    url: string,
+    apiKey?: string
+  ): Promise<Webhook>;
+  abstract removeWebhook(webhookId: number): Promise<void>;
 }
 
 export type StorageClients = Record<string, ThreadClient>;
@@ -95,4 +120,24 @@ export interface BackendConnection {
   url: string;
   token: string;
   isActive: boolean;
+}
+
+export interface DocumentCreateData {
+  title: string;
+  content: string;
+  type: string;
+}
+
+export interface DocumentUpdateData {
+  title?: string;
+  content?: string;
+  type?: string;
+}
+
+export interface Webhook {
+  id: number;
+  thread_id: number;
+  url: string;
+  api_key?: string;
+  last_triggered?: string;
 }
