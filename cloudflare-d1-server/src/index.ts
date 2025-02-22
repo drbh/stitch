@@ -9,6 +9,7 @@ export interface Env {
 	API_KEY: string;
 }
 
+// TODO: refactor improve conditional logic
 // Authentication middleware
 const authMiddleware = (request: Request, env: Env) => {
 	const authHeader = request.headers.get('Authorization');
@@ -18,8 +19,42 @@ const authMiddleware = (request: Request, env: Env) => {
 	}
 
 	const apiKey = authHeader.split('Bearer ')[1];
-	if (apiKey !== env.API_KEY) {
-		return new Response('Invalid API key', { status: 403 });
+
+	// NOTE: in almost all cases we'll want to use the default auth check
+	// the only time we wouldn't is if we're using a narrow token
+	// and we want to avoid the pattern of early exiting to make sure
+	// we dont accidentally leak data
+	let useDefaultAuthCheck = true;
+
+	// if key starts with "narrow_", we need to check it for the specifc thread
+	if (apiKey.startsWith('narrow_')) {
+		const narrowToken = apiKey.split('_')[1];
+		const threadId = request.url.split('/').pop();
+		return env.threadClient!.getThread(Number(threadId)).then((thread) => {
+			if (thread) {
+				// check if the token matches the .share_pubkey
+				if (thread.share_pubkey === narrowToken) {
+					console.log('Narrow token matches');
+					useDefaultAuthCheck = false;
+
+					// fall through case
+					// 🟢
+				} else {
+					console.log('Narrow token does not match');
+					return new Response('Invalid narrow token', { status: 403 });
+				}
+			} else {
+				console.log('Thread not found');
+				return new Response('Thread not found', { status: 404 });
+			}
+		});
+	}
+
+	// only avoid this if we have a narrow token
+	if (useDefaultAuthCheck) {
+		if (apiKey !== env.API_KEY) {
+			return new Response('Invalid API key', { status: 403 });
+		}
 	}
 };
 
@@ -98,6 +133,28 @@ function buildRouter(env: Env): RouterType {
 		try {
 			await env.threadClient!.deleteThread(id);
 			return Response.json({ message: 'Thread deleted' });
+		} catch (e: any) {
+			return new Response(e.message, { status: 500 });
+		}
+	});
+
+	// PUT /api/threads/:threadId — update a thread
+	router.put('/api/threads/:threadId', async (request: Request, env: Env) => {
+		const { threadId } = request.params;
+		const id = Number(threadId);
+		if (isNaN(id)) {
+			return new Response('Invalid thread ID', { status: 400 });
+		}
+		try {
+			const data = await request.formData();
+			const title = data.get('title') as string;
+			const sharePubkey = data.get('sharePubkey') as string;
+			const threadData = {
+				title,
+				sharePubkey,
+			};
+			const thread = await env.threadClient!.updateThread(id, threadData);
+			return Response.json(thread);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
 		}
@@ -230,7 +287,6 @@ function buildRouter(env: Env): RouterType {
 		try {
 			const data = await request.json();
 			const document = await env.threadClient!.createDocument(data.thread_id, {
-				id: crypto.randomUUID(),
 				title: data.title,
 				content: data.content,
 				type: data.type,
@@ -329,6 +385,8 @@ function buildRouter(env: Env): RouterType {
 		}
 	});
 
+	// TODO: avoid all the manual SQL queries - all queries should be in the client
+
 	// GET /api/posts/:postId — get a post
 	router.get('/api/posts/:postId', async (request: Request, env: Env) => {
 		const { postId } = request.params;
@@ -336,16 +394,14 @@ function buildRouter(env: Env): RouterType {
 		if (isNaN(id)) {
 			return new Response('Invalid post ID', { status: 400 });
 		}
-		const stmt = env.DB.prepare('SELECT * FROM posts WHERE id = ?');
-		const post = await stmt.bind(id).first();
+		// update post view count
+		await env.threadClient!.updatePostView(id);
+
+		const post = await env.threadClient!.getPost(id);
 		if (!post) {
 			return new Response('Post not found', { status: 404 });
 		}
-		await env.DB.prepare("UPDATE posts SET view_count = view_count + 1, seen = 1, last_viewed = datetime('now') WHERE id = ?")
-			.bind(id)
-			.run();
-		const updated = await env.DB.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
-		return Response.json(updated);
+		return Response.json(post);
 	});
 
 	// PUT /api/posts/:postId — update a post
@@ -356,13 +412,12 @@ function buildRouter(env: Env): RouterType {
 			return new Response('Invalid post ID', { status: 400 });
 		}
 		const data = await request.json();
-		const stmt = env.DB.prepare('UPDATE posts SET text = ?, image = ?, edited = 1 WHERE id = ?');
-		const result = await stmt.bind(data.text, data.image || null, id).run();
-		if (!result.success) {
-			return new Response('Post update failed', { status: 500 });
+		const post = await env.threadClient!.updatePost(id, data);
+		if (!post) {
+			return new Response('Post not found', { status: 404 });
 		}
-		const updated = await env.DB.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first();
-		return Response.json(updated);
+
+		return Response.json(post);
 	});
 
 	// DELETE /api/posts/:postId — delete a post
@@ -372,8 +427,51 @@ function buildRouter(env: Env): RouterType {
 		if (isNaN(id)) {
 			return new Response('Invalid post ID', { status: 400 });
 		}
-		await env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id).run();
+		await env.threadClient!.deletePost(id);
 		return Response.json({ message: 'Post deleted' });
+	});
+
+	// GET /api/thread/:threadId/apikeys — list API keys for a thread
+	router.get('/api/thread/:threadId/apikeys', async (request: Request, env: Env) => {
+		const { threadId } = request.params;
+		const id = Number(threadId);
+		if (isNaN(id)) {
+			return new Response('Invalid thread ID', { status: 400 });
+		}
+		const keys = await env.threadClient!.getThreadApiKeys(id);
+		return Response.json(keys);
+	});
+
+	// POST /api/thread/:threadId/apikeys — add an API key to a thread
+	router.post('/api/thread/:threadId/apikeys', async (request: Request, env: Env) => {
+		const { threadId } = request.params;
+		const id = Number(threadId);
+		if (isNaN(id)) {
+			return new Response('Invalid thread ID', { status: 400 });
+		}
+		const data = await request.json();
+
+		const permissions = '[]';
+		const randomKey = crypto.randomUUID();
+		const randomKeyName = 'key_' + randomKey.split('-')[0];
+
+		const key = await env.threadClient!.createAPIKey(id, randomKeyName, permissions);
+		return Response.json(key);
+	});
+
+	// DELETE /api/apikeys/:apiKey — delete an API key
+	router.delete('/api/apikeys/:apiKey', async (request: Request, env: Env) => {
+		const { apiKey } = request.params;
+		await env.threadClient!.deleteAPIKey(apiKey);
+		return Response.json({ message: 'API key deleted' });
+	});
+
+	// PUT /api/apikeys/:apiKey — update an API key
+	router.put('/api/apikeys/:apiKey', async (request: Request, env: Env) => {
+		const { apiKey } = request.params;
+		const data = await request.json();
+		const updated = await env.threadClient!.updateAPIKey(apiKey, data.permissions);
+		return Response.json(updated);
 	});
 
 	// POST /api/upload — file upload (not implemented here)

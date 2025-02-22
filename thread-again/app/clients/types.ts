@@ -11,6 +11,7 @@ export interface Thread {
   view_count: number;
   reply_count: number;
   posts?: Post[];
+  share_pubkey?: string;
   documents?: Document[];
 
   location?: string;
@@ -53,6 +54,7 @@ export interface Document {
   updated_at: string; // ISO timestamp
   last_viewed?: string; // ISO timestamp
   view_count: number;
+  share_pubkey?: string;
 }
 
 export interface DocumentCreateData
@@ -71,6 +73,13 @@ export abstract class ThreadClient {
   abstract getThread(threadId: number): Promise<Thread | null>;
   abstract createThread(data: ThreadCreateData): Promise<Thread>;
   abstract deleteThread(threadId: number): Promise<void>;
+  abstract updateThread(
+    threadId: number,
+    data: {
+      title?: string;
+      sharePubkey?: string;
+    }
+  ): Promise<Thread>;
 
   // Post operations
   abstract createPost(
@@ -90,7 +99,11 @@ export abstract class ThreadClient {
   abstract getThreadDocuments(threadId: number): Promise<Document[]>;
   abstract createDocument(
     threadId: number,
-    data: DocumentCreateData
+    data: {
+      title: string;
+      content: string;
+      type: string;
+    }
   ): Promise<Document>;
   abstract getDocument(docId: string): Promise<Document | null>;
   abstract updateDocument(
@@ -107,6 +120,17 @@ export abstract class ThreadClient {
     apiKey?: string
   ): Promise<Webhook>;
   abstract removeWebhook(webhookId: number): Promise<void>;
+
+  // API Key operations
+  abstract getAPIKey(key: string): Promise<APIKey>;
+  abstract getThreadApiKeys(threadId: number): Promise<APIKey[]>;
+  abstract createAPIKey(
+    threadId: number,
+    keyName: string,
+    permissions: any
+  ): Promise<APIKey>;
+  abstract updateAPIKey(key: string, permissions: any): Promise<APIKey>;
+  abstract deleteAPIKey(key: string): Promise<void>;
 }
 
 export type StorageClients = Record<string, ThreadClient>;
@@ -140,4 +164,21 @@ export interface Webhook {
   url: string;
   api_key?: string;
   last_triggered?: string;
+}
+
+//
+// API Key Interfaces and Component
+//
+export interface APIKey {
+  id: string;
+  thread_id?: number;
+  key_name: string;
+  api_key: string;
+  permissions: {
+    read: boolean;
+    write: boolean;
+    delete: boolean;
+  };
+  created_at?: string;
+  updated_at?: string;
 }

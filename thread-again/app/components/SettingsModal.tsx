@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useFetcher } from "@remix-run/react";
-import { BackendConnection } from "~/clients/types";
+import { useFetcher, Await } from "@remix-run/react";
+import { BackendConnection, APIKey } from "~/clients/types";
 
 interface BackendConnectionItemProps {
   connection: BackendConnection;
@@ -14,13 +14,9 @@ function BackendConnectionItem({
   onUpdate,
   onRemove,
 }: BackendConnectionItemProps) {
-  // Local UI state to toggle between view and edit modes.
   const [isEditing, setIsEditing] = useState(false);
-  // Local copy for editing so that canceling will revert changes.
   const [editingData, setEditingData] = useState<BackendConnection>(connection);
 
-  // If the connection prop changes externally and we're not editing,
-  // update the local copy.
   useEffect(() => {
     if (!isEditing) {
       setEditingData(connection);
@@ -32,7 +28,6 @@ function BackendConnectionItem({
   };
 
   const handleSave = () => {
-    // You could add inline validation here if needed.
     onUpdate(editingData);
     setIsEditing(false);
   };
@@ -42,21 +37,19 @@ function BackendConnectionItem({
     setIsEditing(false);
   };
 
-  // Compact view: show summary details with Edit/Remove buttons.
-  //   ${!connection.isActive ? "pointer-events-none" : ""}
   if (!isEditing) {
     return (
       <div
         className={`
-            border border-border p-4 rounded-lg mb-1 mt-1
-            ${!connection.isActive ? "cursor-not-allowed" : ""}
+          border border-border p-4 rounded-lg mb-1 mt-1
+          ${!connection.isActive ? "cursor-not-allowed" : ""}
         `}
       >
         <div
           className={`
             flex justify-between items-center
             ${!connection.isActive ? "opacity-50" : ""}
-        `}
+          `}
         >
           <div>
             <p className="font-semibold">
@@ -92,7 +85,6 @@ function BackendConnectionItem({
     );
   }
 
-  // Edit view: show form fields for editing this connection.
   return (
     <div className="border border-border p-4 rounded-lg mb-4">
       <div className="mb-4">
@@ -148,30 +140,36 @@ function BackendConnectionItem({
   );
 }
 
+//
+// Settings Modal with Sidebar for Toggling Views
+//
+type SettingsView = "backends";
+
 function SettingsModal({
   backendMetadata,
+  activeThreadApiKeys,
   onClose,
 }: {
   backendMetadata: BackendConnection[];
+  activeThreadApiKeys: Promise<APIKey[]>;
   onClose: () => void;
 }) {
   const fetcher = useFetcher<{ success: boolean }>();
   const [backends, setBackends] =
     useState<BackendConnection[]>(backendMetadata);
+  const [selectedView, setSelectedView] = useState<SettingsView>("backends");
 
-  // Update a connection in the state.
+  // Backend-related handlers
   const updateBackend = (updated: BackendConnection) => {
     setBackends((prev) =>
       prev.map((backend) => (backend.id === updated.id ? updated : backend))
     );
   };
 
-  // Remove a connection from the state.
   const removeBackend = (id: string) => {
     setBackends((prev) => prev.filter((backend) => backend.id !== id));
   };
 
-  // Add a new blank connection.
   const addBackend = () => {
     setBackends((prev) => [
       ...prev,
@@ -179,28 +177,62 @@ function SettingsModal({
     ]);
   };
 
-  // On form submit, build a single data structure containing all connections.
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  // TODO: refactor and consolidate all the API key logic
+
+  // API Key-related handlers
+  const updateAPIKey = (updated: APIKey) => {
     fetcher.submit(
       {
-        intent: "updateBackends",
-        backends: JSON.stringify(backends),
+        intent: "updated",
+        updated: JSON.stringify(updated),
       },
       { method: "post" }
     );
   };
 
-  // Close the modal on a successful update.
+  const removeAPIKey = (id: string) => {
+    fetcher.submit(
+      {
+        intent: "removeApiKey",
+        id,
+      },
+      { method: "post" }
+    );
+  };
+
+  const createApiKey = async () => {
+    fetcher.submit(
+      {
+        intent: "createApiKey",
+      },
+      { method: "post" }
+    );
+  };
+
+  // On form submit, package both backend and API key data.
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    fetcher.submit(
+      {
+        intent: "updateSettings",
+        backends: JSON.stringify(backends),
+        apiKeys: JSON.stringify({}),
+      },
+      { method: "post" }
+    );
+  };
+
+  // Close the modal upon a successful update.
   useEffect(() => {
     if (fetcher.data && fetcher.data.success) {
-      onClose();
+      // onClose();
     }
   }, [fetcher.data, onClose]);
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-50"
+      // fixed slightly down from the top
+      className="fixed inset-x-0 top-24 flex items-center justify-center z-50"
       role="dialog"
       aria-modal="true"
     >
@@ -208,44 +240,70 @@ function SettingsModal({
         className="absolute inset-0 bg-black opacity-80"
         onClick={onClose}
       ></div>
-      <div className="border border-border bg-surface-secondary p-6 rounded-lg shadow-lg z-10 w-full max-w-2xl">
-        <h2 className="text-lg font-semibold text-content-accent mb-4">
-          Configure Connected Backends
-        </h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {backends.map((backend) => (
-            <BackendConnectionItem
-              key={backend.id}
-              connection={backend}
-              onUpdate={updateBackend}
-              onRemove={removeBackend}
-            />
-          ))}
-          <div>
-            <button
-              type="button"
-              onClick={addBackend}
-              className="px-4 py-2 rounded bg-green-600 text-content-accent hover:bg-green-700"
-            >
-              Add Backend Connection
-            </button>
-          </div>
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded bg-gray-400 text-content-accent hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 rounded bg-blue-600 text-content-accent hover:bg-blue-700"
-            >
-              Save Settings
-            </button>
-          </div>
-        </form>
+      <div className="min-h-[80vh] bg-surface-secondary border border-border p-6 rounded-lg shadow-lg z-10 w-full max-w-4xl flex">
+        {/* Sidebar */}
+        <div className="w-1/4 border-r border-border pr-4">
+          <h3 className="text-lg font-semibold text-content-accent mb-4 ">
+            Settings
+          </h3>
+          <ul className="space-y-2">
+            <li>
+              <button
+                type="button"
+                onClick={() => setSelectedView("backends")}
+                className={`w-full text-left px-2 py-1 rounded ${
+                  selectedView === "backends"
+                    ? "bg-blue-600 text-content-accent"
+                    : "hover:bg-gray-200"
+                }`}
+              >
+                Backends
+              </button>
+            </li>
+          </ul>
+        </div>
+        {/* Main Content Area */}
+        <div className="flex-grow pl-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {selectedView === "backends" && (
+              <div>
+                <h2 className="text-lg font-semibold text-content-accent mb-4">
+                  Configure Connected Backends
+                </h2>
+                {backends.map((backend) => (
+                  <BackendConnectionItem
+                    key={backend.id}
+                    connection={backend}
+                    onUpdate={updateBackend}
+                    onRemove={removeBackend}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={addBackend}
+                  className="px-4 py-2 rounded bg-green-600 text-content-accent hover:bg-green-700"
+                >
+                  Add Backend Connection
+                </button>
+              </div>
+            )}
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded bg-gray-400 text-content-accent hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded bg-blue-600 text-content-accent hover:bg-blue-700"
+              >
+                Save Settings
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

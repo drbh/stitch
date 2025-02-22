@@ -20,8 +20,12 @@ export const clientMiddleware = async (
 ) => {
   const cookie = request.headers.get("Cookie");
   const backends = cookie?.split(";").find((c) => c.includes("backends"));
+  // TODO: revisit if we need the apikeys cookie.
+  const apiKeys = cookie?.split(";").find((c) => c.includes("apiKeys"));
   const backendsValue = backends?.split("=")[1] || "[]";
+  const apiKeysValue = apiKeys?.split("=")[1] || "[]";
   const backendsJson: BackendConnection[] = JSON.parse(backendsValue);
+  const apiKeysJson: Record<string, string>[] = JSON.parse(apiKeysValue);
   const env = process.env.NODE_ENV;
   if (backendsJson.length == 0) {
     const defaultBackends = [];
@@ -52,8 +56,9 @@ export const clientMiddleware = async (
     if (server.startsWith("http")) {
       storageClients[server] = new RestThreadClient(server, token);
     } else if (server === "local") {
-      const { SqliteThreadClient } = await import("~/clients/sqlite");
-      storageClients[server] = await SqliteThreadClient.initialize("./app.db");
+      // TODO: refactor and condolidate all the clients into one.
+      // const { SqliteThreadClient } = await import("~/clients/sqlite");
+      // storageClients[server] = await SqliteThreadClient.initialize("./app.db");
     } else if (server === "d1") {
       // @ts-ignore-next-line
       const db = loadContext.cloudflare.env.DB;
@@ -62,6 +67,7 @@ export const clientMiddleware = async (
       console.error("Unknown server:", server);
     }
   }
+  loadContext.apiKeysJson = apiKeysJson;
   loadContext.backendsJson = backendsJson;
   loadContext.storageClients = storageClients;
   loadContext.appConstants = appConstants;

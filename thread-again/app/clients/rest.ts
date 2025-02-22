@@ -8,6 +8,7 @@ import {
   DocumentCreateData,
   DocumentUpdateData,
   Webhook,
+  APIKey,
 } from "./types";
 
 /**
@@ -16,6 +17,7 @@ import {
  */
 export class RestThreadClient extends ThreadClient {
   private apiKey?: string;
+  private narrowToken?: string;
 
   constructor(
     private baseURL: string = "http://localhost:8000",
@@ -36,6 +38,10 @@ export class RestThreadClient extends ThreadClient {
 
     if (this.apiKey) {
       headers.set("Authorization", `Bearer ${this.apiKey}`);
+    }
+
+    if (this.narrowToken) {
+      headers.set("Authorization", `Bearer narrow_${this.narrowToken}`);
     }
 
     return fetch(`${this.baseURL}${endpoint}`, {
@@ -91,6 +97,27 @@ export class RestThreadClient extends ThreadClient {
     if (!response.ok) {
       throw new Error(await response.text());
     }
+  }
+
+  // update thread
+  async updateThread(
+    threadId: number,
+    data: { title: string; sharePubkey?: string }
+  ): Promise<Thread> {
+    const formData = new FormData();
+    formData.append("title", data.title);
+    if (data.sharePubkey) {
+      formData.append("sharePubkey", data.sharePubkey);
+    }
+
+    const response = await this.makeRequest(`/api/threads/${threadId}`, {
+      method: "PUT",
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
   }
 
   // Post Management
@@ -187,7 +214,12 @@ export class RestThreadClient extends ThreadClient {
 
   async createDocument(
     threadId: number,
-    data: DocumentCreateData
+    data: {
+      id: string;
+      title: string;
+      content: string;
+      type: string;
+    }
   ): Promise<Document> {
     const response = await this.makeRequest("/api/documents", {
       method: "POST",
@@ -273,5 +305,65 @@ export class RestThreadClient extends ThreadClient {
     if (!response.ok) {
       throw new Error(await response.text());
     }
+  }
+
+  // API Key Management
+
+  async getAPIKey(key: string): Promise<APIKey> {
+    const response = await this.makeRequest(`/api/api_keys/${key}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async getThreadApiKeys(threadId: number): Promise<APIKey[]> {
+    const response = await this.makeRequest(`/api/thread/${threadId}/apikeys`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async createAPIKey(
+    threadId: number,
+    keyName: string,
+    permissions: any
+  ): Promise<APIKey> {
+    const response = await this.makeRequest(`/api/thread/${threadId}/apikeys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyName, permissions }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async updateAPIKey(key: string, permissions: any): Promise<APIKey> {
+    const response = await this.makeRequest(`/api/api_keys/${key}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ permissions }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async deleteAPIKey(key: string): Promise<void> {
+    const response = await this.makeRequest(`/api/api_keys/${key}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+  }
+
+  // special for narrow access
+  setNarrowToken(token: string) {
+    this.narrowToken = token;
   }
 }
