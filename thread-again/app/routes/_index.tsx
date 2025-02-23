@@ -159,19 +159,26 @@ export const loader: LoaderFunction = async ({ request, context }) => {
 
         // Start parallel fetching for webhooks, documents, and API keys.
         const parallelStart = Date.now();
-        activeThreadWebhooks = context.storageClients[server].getThreadWebhooks(
-          parseInt(threadId)
-        );
-        activeThreadDocuments = context.storageClients[
-          server
-        ].getThreadDocuments(parseInt(threadId));
-        activeThreadApiKeys = context.storageClients[server].getThreadApiKeys(
-          parseInt(threadId)
-        );
-        activeThreadPosts = context.storageClients[server].getLatestPosts(
-          parseInt(threadId),
-          10
-        );
+        activeThreadWebhooks = context.storageClients[server]
+          .getThreadWebhooks(parseInt(threadId))
+          .then((webhooks) => webhooks)
+          .catch(() => []);
+
+        activeThreadDocuments = context.storageClients[server]
+          .getThreadDocuments(parseInt(threadId))
+          .then((documents) => documents)
+          .catch(() => []);
+
+        activeThreadApiKeys = context.storageClients[server]
+          .getThreadApiKeys(parseInt(threadId))
+          .then((apiKeys) => apiKeys)
+          .catch(() => []);
+
+        activeThreadPosts = context.storageClients[server]
+          .getLatestPosts(parseInt(threadId), 10)
+          .then((posts) => posts)
+          .catch(() => []);
+
       }
     } catch (error) {
       console.error(`[TRACE] Error fetching active thread: ${error.message}`);

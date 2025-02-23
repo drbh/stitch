@@ -48,7 +48,33 @@ class ApiMiddleware {
 		let useDefaultAuthCheck = true;
 		if (apiKey.startsWith('narrow_')) {
 			const narrowToken = apiKey.split('_')[1];
-			const threadId = request.url.split('/').pop()!;
+
+			// TODO: make this better and less error prone
+			const urlParts = request.url.split('/');
+
+			let foundThreadId = '';
+			let foundThread = false;
+			for (const part of urlParts) {
+				if (foundThread) {
+					// if its latest continue one more time
+					if (part === 'latest') {
+						continue;
+					}
+
+					foundThreadId = part;
+					break;
+				}
+				if (part === 'threads') {
+					foundThread = true;
+				}
+			}
+
+			if (foundThreadId === '') {
+				console.log('[TRACE] Thread ID not found');
+				return new Response('Thread ID not found', { status: 404 });
+			}
+			const threadId = foundThreadId;
+
 			return this.env.threadClient!.getThread(Number(threadId)).then((thread) => {
 				if (thread) {
 					if (thread.share_pubkey === narrowToken) {
@@ -256,8 +282,8 @@ class ApiRoutes {
 
 	@routeTrace
 	async getLatestPosts(request: Request): Promise<Response> {
-		const { threadId, limit: _limit, lastPostTime: _lastPostTime } = (request as any).params;
-		const id = Number(threadId);
+		const { threadId: _threadId, limit: _limit, lastPostTime: _lastPostTime } = (request as any).params;
+		const threadId = Number(_threadId);
 		const timeCursor = Number(_lastPostTime);
 		const limit = Number(_limit);
 
@@ -265,7 +291,7 @@ class ApiRoutes {
 		if (timeCursor > 0) {
 			lastPostTime = timeCursor;
 		}
-		if (isNaN(id)) {
+		if (isNaN(threadId)) {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
