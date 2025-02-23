@@ -168,6 +168,20 @@ export class RestThreadClient extends ThreadClient {
     return await response.json();
   }
 
+  async getLatestPosts(
+    threadId: number,
+    limit: number,
+    lastPostTime: number = -1
+  ): Promise<Post[]> {
+    const response = await this.makeRequest(
+      `/api/threads/latest/${threadId}/${limit}/${lastPostTime}`
+    );
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
   async getPost(postId: number): Promise<Post> {
     const response = await this.makeRequest(`/api/posts/${postId}`);
     if (!response.ok) {
@@ -215,7 +229,6 @@ export class RestThreadClient extends ThreadClient {
   async createDocument(
     threadId: number,
     data: {
-      id: string;
       title: string;
       content: string;
       type: string;

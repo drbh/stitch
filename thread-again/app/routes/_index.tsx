@@ -8,18 +8,20 @@ import type {
   Document as TDocument,
   APIKey,
   Webhook,
+  Post,
 } from "~/clients/types";
 import SettingsModal from "~/components/SettingsModal";
 import { RestThreadClient } from "~/clients/rest";
 
 type LoaderData = {
-  threads: Thread[];
+  threads: Promise<Thread[]>;
   servers: string[];
   backendMetadata: BackendConnection[];
   activeThread: Thread | null;
   activeThreadWebhooks: Promise<Webhook[]>;
   activeThreadDocuments: Promise<TDocument[]>;
   activeThreadApiKeys: Promise<APIKey[]>;
+  activeThreadPosts: Promise<Post[]>;
   initialViewConfig: {
     showSettings: boolean;
     showMenu: boolean;
@@ -27,118 +29,169 @@ type LoaderData = {
 };
 
 export const loader: LoaderFunction = async ({ request, context }) => {
-  const threads: Array<Thread> = [];
+  const overallStart = Date.now();
+  console.log(
+    `[TRACE] Loader started at ${new Date(overallStart).toISOString()}`
+  );
+
   let activeThread = null;
+  let threads = Promise.resolve<Thread[]>([]);
   let activeThreadWebhooks = Promise.resolve<Webhook[]>([]);
   let activeThreadDocuments = Promise.resolve<TDocument[]>([]);
   let activeThreadApiKeys = Promise.resolve<APIKey[]>([]);
+  let activeThreadPosts = Promise.resolve<Post[]>([]);
 
   const url = new URL(request.url);
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
 
-  // inplace update the clientMiddleware
+  // Measure the clientMiddleware call.
+  const middlewareStart = Date.now();
   await clientMiddleware(request, context);
+  console.log(
+    `[TRACE] clientMiddleware took ${Date.now() - middlewareStart}ms`
+  );
+
   const storageClients = context.storageClients;
   const backendsJson = context.backendsJson;
   const apiKeysJson = context.apiKeysJson;
 
   if (!backendsJson || !apiKeysJson) {
+    console.log(
+      `[TRACE] Missing backendsJson or apiKeysJson, returning error.`
+    );
     return new Response(null, { status: 500 });
   }
 
+  // Time the mapping of backend metadata.
+  const backendMappingStart = Date.now();
   const backendMetadata = backendsJson.map((backend) => {
     const { id, name, url, token, isActive } = backend;
-    return { id, name, url, token: token, isActive };
+    return { id, name, url, token, isActive };
   });
+  console.log(
+    `[TRACE] Mapping backendMetadata took ${Date.now() - backendMappingStart}ms`
+  );
 
-  // if storageClients not in context, return empty threads
+  // If storageClients not in context, return empty threads.
   if (!storageClients) {
+    console.log(`[TRACE] No storageClients, returning empty threads.`);
     return Response.json({ threads, activeThread }, { status: 200 });
   }
 
   const servers = Object.keys(storageClients);
+  console.log(`[TRACE] Servers available: ${servers.join(", ")}`);
 
-  // we only use a single route but this can be expanded
+  // Determine allowed routes.
   let allowedRoutes = ["/", "/other"];
-
   if (server && !servers.includes(server)) {
     const token = url.searchParams.get("token");
-
     if (token) {
       const adHocServer = new RestThreadClient(server);
       adHocServer.setNarrowToken(token);
       context.storageClients[server] = adHocServer;
-
-      // based on the ALC from the server, we can restrict the routes
       allowedRoutes = ["/"];
+      console.log(
+        `[TRACE] AdHoc server added for ${server}. Allowed routes set to ${allowedRoutes.join(
+          ", "
+        )}`
+      );
     }
   }
 
-  // if the route is not allowed, return an error
+  // If the route is not allowed, return error data.
   if (!allowedRoutes.includes(url.pathname)) {
+    console.log(
+      `[TRACE] Route ${url.pathname} is not allowed. Returning error data.`
+    );
     const data: LoaderData = {
-      threads: threads,
-      activeThread: null,
+      threads,
+      activeThread,
       servers,
       backendMetadata,
       activeThreadWebhooks,
       activeThreadDocuments,
+      activeThreadApiKeys,
+      activeThreadPosts,
+      initialViewConfig: { showSettings: false, showMenu: false },
     };
-
     return data;
   }
 
-  for (const server of servers) {
+  // Loop through servers and fetch threads.
+  for (const srv of servers) {
     try {
-      const serverThreads = await storageClients[server].getThreads();
-      serverThreads.forEach((thread) => {
-        thread.location = server;
+      const serverStart = Date.now();
+      const serverThreads = storageClients[srv].getThreads();
+      console.log(
+        `[TRACE] getThreads for server "${srv}" took ${
+          Date.now() - serverStart
+        }ms`
+      );
+      threads = serverThreads.then((serverThreads) => {
+        serverThreads.forEach((thread) => {
+          thread.location = srv;
+        });
+        return serverThreads;
       });
-      threads.push(...serverThreads);
     } catch (error) {
-      // @ts-ignore-next-line
-      console.error(`Error fetching threads from ${server}: ${error.message}`);
+      console.error(
+        `[TRACE] Error fetching threads from ${srv}: ${error.message}`
+      );
     }
   }
 
+  // If a specific thread is requested, fetch it and its related data.
   if (threadId && server && activeThread === null) {
     try {
-      const activeThreadStartTimestamp = Date.now();
+      const activeThreadStart = Date.now();
       activeThread = await context.storageClients[server].getThread(
         parseInt(threadId)
       );
+      console.log(
+        `[TRACE] getThread for threadId "${threadId}" on server "${server}" took ${
+          Date.now() - activeThreadStart
+        }ms`
+      );
 
       if (activeThread && activeThread.posts) {
-        activeThread.posts.sort((a, b) => b.id - a.id);
         activeThread.location = server;
 
+        // Start parallel fetching for webhooks, documents, and API keys.
+        const parallelStart = Date.now();
         activeThreadWebhooks = context.storageClients[server].getThreadWebhooks(
           parseInt(threadId)
         );
         activeThreadDocuments = context.storageClients[
           server
         ].getThreadDocuments(parseInt(threadId));
-
         activeThreadApiKeys = context.storageClients[server].getThreadApiKeys(
           parseInt(threadId)
         );
+        activeThreadPosts = context.storageClients[server].getLatestPosts(
+          parseInt(threadId),
+          10
+        );
       }
     } catch (error) {
-      // if the thread is not found, set activeThread to null
+      console.error(`[TRACE] Error fetching active thread: ${error.message}`);
       activeThread = null;
     }
   }
 
-  // Properly format the cookie string
+  // Trace the cookie string generation.
+  const cookieStart = Date.now();
   const cookieOptions = [
-    `last_visited=${new Date().toISOString()} ${"test"}`,
+    `last_visited=${new Date().toISOString()}`,
     "Path=/",
     "HttpOnly",
     "Secure",
     "SameSite=Strict",
     "Max-Age=31536000",
   ];
+  console.log(
+    `[TRACE] Setting cookieOptions took ${Date.now() - cookieStart}ms`
+  );
 
   const initialViewConfig = {
     showSettings: false,
@@ -146,7 +199,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   };
 
   const data: LoaderData = {
-    threads: threads,
+    threads,
     activeThread,
     servers,
     backendMetadata,
@@ -154,7 +207,10 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     activeThreadDocuments,
     activeThreadApiKeys,
     initialViewConfig,
+    activeThreadPosts,
   };
+
+  console.log(`[TRACE] Loader finished in ${Date.now() - overallStart}ms`);
 
   return data;
 };
@@ -527,6 +583,7 @@ export default function Index() {
     activeThreadDocuments,
     activeThreadApiKeys,
     initialViewConfig,
+    activeThreadPosts,
   } = useLoaderData<LoaderData>();
 
   const setActiveThread = (thread: Thread | null) => {
@@ -591,6 +648,7 @@ export default function Index() {
         />
         <MainContent
           activeThread={activeThread}
+          activeThreadPosts={activeThreadPosts}
           activeThreadWebhooks={activeThreadWebhooks}
           activeThreadDocuments={activeThreadDocuments}
           activeThreadApiKeys={activeThreadApiKeys}
@@ -682,7 +740,7 @@ function Sidebar({
   setShowMenu,
 }: {
   servers: string[];
-  threads: Thread[];
+  threads: Promise<Thread[]>;
   setActiveThread: (thread: Thread | null) => void;
   activeThread: Thread | null;
   showMenu: boolean;
@@ -826,7 +884,7 @@ function ThreadList({
   setActiveThread,
   activeThread,
 }: {
-  threads: Thread[];
+  threads: Promise<Thread[]>;
   activeThread: Thread | null;
   setActiveThread: (thread: Thread | null) => void;
 }) {
@@ -862,36 +920,53 @@ function ThreadList({
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-content-accent">Threads</h2>
       <ul className="space-y-2">
-        {threads.map((thread) => (
-          <li
-            key={thread.id + thread.location!}
-            onClick={() => setActiveThread(thread)}
-            className={`p-3 rounded-lg cursor-pointer transition-colors ${
-              activeThread?.id === thread.id &&
-              activeThread?.location === thread.location
-                ? "bg-interactive text-content-primary"
-                : "bg-surface-tertiary hover:bg-interactive-hover"
-            }`}
-          >
-            <button
-              className="text-xs text-content-accent float-right mt-1"
-              onClick={handleThreadDelete}
-            >
-              <CloseIcon />
-            </button>
-            <h3 className="font-medium truncate">{thread.title}</h3>
-            <p className="text-sm text-content-secondary truncate">
-              {thread.last_activity}
-            </p>
-            <div className="flex items-center justify-between">
-              {thread.location && (
-                <span className="text-xs text-content-secondary">
-                  {thread.location}
-                </span>
-              )}
+        <Suspense
+          fallback={
+            // a skeleton loader
+            <div className="space-y-4">
+              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
             </div>
-          </li>
-        ))}
+          }
+        >
+          <Await resolve={threads}>
+            {(threads) => (
+              <>
+                {threads.map((thread) => (
+                  <li
+                    key={thread.id + thread.location!}
+                    onClick={() => setActiveThread(thread)}
+                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                      activeThread?.id === thread.id &&
+                      activeThread?.location === thread.location
+                        ? "bg-interactive text-content-primary"
+                        : "bg-surface-tertiary hover:bg-interactive-hover"
+                    }`}
+                  >
+                    <button
+                      className="text-xs text-content-accent float-right mt-1"
+                      onClick={handleThreadDelete}
+                    >
+                      <CloseIcon />
+                    </button>
+                    <h3 className="font-medium truncate">{thread.title}</h3>
+                    <p className="text-sm text-content-secondary truncate">
+                      {thread.last_activity}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      {thread.location && (
+                        <span className="text-xs text-content-secondary">
+                          {thread.location}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </>
+            )}
+          </Await>
+        </Suspense>
       </ul>
     </div>
   );
@@ -1005,11 +1080,13 @@ function ThreadSettingView({
 
 function MainContent({
   activeThread,
+  activeThreadPosts,
   activeThreadWebhooks,
   activeThreadDocuments,
   activeThreadApiKeys,
 }: {
   activeThread: Thread | null;
+  activeThreadPosts: Promise<Post[]>;
   activeThreadWebhooks: Promise<Webhook[]>;
   activeThreadDocuments: Promise<TDocument[]>;
   activeThreadApiKeys: Promise<APIKey[]>;
@@ -1096,9 +1173,6 @@ function MainContent({
   const [url, setUrl] = useState("");
 
   useEffect(() => {
-    activeThread?.posts &&
-      setCounts((prev) => ({ ...prev, posts: activeThread.posts.length }));
-
     activeThreadWebhooks.then((webhooks) => {
       setCounts((prev) => ({ ...prev, settings: webhooks.length }));
     });
@@ -1107,6 +1181,10 @@ function MainContent({
     });
     activeThreadApiKeys.then((apiKeys) => {
       setCounts((prev) => ({ ...prev, access: apiKeys.length }));
+    });
+    activeThreadPosts.then((posts) => {
+      console.log(posts);
+      setCounts((prev) => ({ ...prev, posts: posts.length }));
     });
 
     // if window.location.origin is available, use it
@@ -1243,11 +1321,7 @@ function MainContent({
             </button>
             <button
               onClick={handleShareUrlCreate}
-              className={`${
-                currentTab === "never"
-                  ? "bg-interactive text-content-primary"
-                  : "bg-surface-tertiary text-content-accent"
-              } px-6 py-2 rounded-lg font-medium`}
+              className="bg-surface-tertiary text-content-accent px-6 py-2 rounded-lg font-medium"
             >
               Share URL
             </button>
@@ -1258,8 +1332,7 @@ function MainContent({
               <PostComposer />
               <Thread
                 thread={activeThread}
-                activeThreadWebhooks={activeThreadWebhooks}
-                activeThreadDocuments={activeThreadDocuments}
+                activeThreadPosts={activeThreadPosts}
               />
             </div>
           )}
@@ -1413,7 +1486,13 @@ function MainContent({
   );
 }
 
-function Thread({ thread }: { thread: Thread }) {
+function Thread({
+  thread,
+  activeThreadPosts,
+}: {
+  thread: Thread;
+  activeThreadPosts: Promise<Post[]>;
+}) {
   const fetcher = useFetcher<{ success: boolean }>();
 
   const handlePostDelete = (e: React.MouseEvent, postId: number) => {
@@ -1437,33 +1516,49 @@ function Thread({ thread }: { thread: Thread }) {
     <div className="space-y-6 mt-4">
       <h2 className="text-lg font-semibold text-content-accent">Posts</h2>
       <div className="space-y-4">
-        {thread.posts && thread.posts.length > 0 ? (
-          <ul className="space-y-4">
-            {thread.posts.map((post) => (
-              <li key={post.id} className="bg-surface-tertiary p-4 rounded-lg">
-                <button
-                  className="text-xs text-content-accent float-right mt-1"
-                  onClick={(e) => handlePostDelete(e, post.id)}
-                >
-                  <CloseIcon />
-                </button>
-                <div>{post.author}</div>
-                <div>{post.time}</div>
-                {post.image && (
-                  <img
-                    src={post.image}
-                    alt="Post Image"
-                    className="w-full rounded-lg mb-4 max-w-xs"
-                  />
-                )}
+        <ul className="space-y-4">
+          <Suspense
+            fallback={
+              // a skeleton loader
+              <div className="space-y-4">
+                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+              </div>
+            }
+          >
+            <Await resolve={activeThreadPosts}>
+              {(posts) => (
+                <ul className="space-y-4">
+                  {posts.map((post) => (
+                    <li
+                      key={post.id}
+                      className="bg-surface-tertiary p-4 rounded-lg"
+                    >
+                      <button
+                        className="text-xs text-content-accent float-right mt-1"
+                        onClick={(e) => handlePostDelete(e, post.id)}
+                      >
+                        <CloseIcon />
+                      </button>
+                      <div>{post.author}</div>
+                      <div>{post.time}</div>
+                      {post.image && (
+                        <img
+                          src={post.image}
+                          alt="Post Image"
+                          className="w-full rounded-lg mb-4 max-w-xs"
+                        />
+                      )}
 
-                <div>{post.text}</div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-content-tertiary">No replies yet.</p>
-        )}
+                      <div>{post.text}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Await>
+          </Suspense>
+        </ul>
       </div>
     </div>
   );

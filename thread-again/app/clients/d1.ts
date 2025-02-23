@@ -1,5 +1,5 @@
-import {
-  ThreadClient,
+import { ThreadClient } from "../clients/types";
+import type {
   Thread,
   ThreadCreateData,
   Post,
@@ -31,6 +31,77 @@ interface D1Database {
   prepare(query: string): D1PreparedStatement;
 }
 
+const DEBUG = true;
+
+/**
+ * Wraps a D1Database instance with a Proxy that logs every method call.
+ */
+export function createTracingD1Database(d1: D1Database): D1Database {
+  return new Proxy(d1, {
+    get(target, prop, receiver) {
+      const orig = target[prop as keyof D1Database];
+      if (typeof orig === "function") {
+        return function (...args: any[]) {
+          // console.log(
+          //   `[TRACE] d1.${String(prop)} called with arguments:`,
+          //   args
+          // );
+
+          // @ts-ignore
+          const result = orig.apply(target, args);
+          if (result instanceof Promise) {
+            result
+              .then(
+                (res) =>
+                  // console.log(`[TRACE] d1.${String(prop)} resolved with:`, res)
+                  1 + 1
+              )
+              .catch(
+                (err) =>
+                  // console.error(`[TRACE] d1.${String(prop)} rejected with:`, err)
+                  1 + 1
+              );
+          } else {
+            // console.log(`[TRACE] d1.${String(prop)} returned:`, result);
+          }
+          return result;
+        };
+      }
+      return orig;
+    },
+  });
+}
+
+/**
+ * Decorator for method-level tracing. Logs the method entry,
+ * its arguments, and the exit result (or any error thrown).
+ */
+function traceMethod(
+  target: any,
+  propertyKey: string,
+  descriptor: PropertyDescriptor
+) {
+  const originalMethod = descriptor.value;
+  descriptor.value = async function (...args: any[]) {
+    const start = Date.now();
+    // console.log(`[TRACE] Entering ${propertyKey} with arguments:`, args);
+    try {
+      const result = await originalMethod.apply(this, args);
+      const end = Date.now();
+      const duration = end - start;
+      if (DEBUG) {
+        console.log(`[TRACE] [${propertyKey}] returned in ${duration}ms`);
+      }
+      // console.log(`[TRACE] Exiting ${propertyKey} with result:`, result);
+      return result;
+    } catch (error) {
+      console.error(`[TRACE] Error in ${propertyKey}:`, error);
+      throw error;
+    }
+  };
+  return descriptor;
+}
+
 /**
  * D1ThreadClient implements ThreadClient using Cloudflare's D1.
  */
@@ -47,15 +118,19 @@ export class D1ThreadClient extends ThreadClient {
    * Initializes the client and creates tables if they do not exist.
    * (Schema migrations are usually handled separately in production.)
    */
+  @traceMethod
   static async initialize(d1: D1Database): Promise<D1ThreadClient> {
+    // Wrap the provided database with tracing.
+    // const tracedD1 = createTracingD1Database(d1);
     const client = new D1ThreadClient(d1);
-    await client.createTables();
+    // await client.createTables();
     return client;
   }
 
   /**
    * Creates the necessary tables (threads, posts, documents, webhooks).
    */
+  @traceMethod
   private async createTables(): Promise<void> {
     await this.d1
       .prepare(
@@ -153,6 +228,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Retrieve all threads (ordered by last activity).
    */
+  @traceMethod
   async getThreads(): Promise<Thread[]> {
     const stmt = this.d1.prepare(
       "SELECT * FROM threads ORDER BY last_activity DESC"
@@ -165,6 +241,7 @@ export class D1ThreadClient extends ThreadClient {
    * Retrieve a thread (with its posts and documents) by its ID.
    * Increments the thread's view count.
    */
+  @traceMethod
   async getThread(threadId: number): Promise<Thread | null> {
     const stmt = this.d1.prepare("SELECT * FROM threads WHERE id = ?");
     const thread = (await stmt.bind(threadId).first()) as Thread | undefined;
@@ -176,13 +253,18 @@ export class D1ThreadClient extends ThreadClient {
       .bind(threadId)
       .run();
 
-    const posts = await this.getPosts(threadId);
+    // sleep 1 second
+    // await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // const posts = await this.getPosts(threadId);
+    const posts: Post[] = [];
     return { ...thread, posts };
   }
 
   /**
    * Create a new thread and an initial post.
    */
+  @traceMethod
   async createThread(data: ThreadCreateData): Promise<Thread> {
     const stmt = this.d1.prepare(
       "INSERT INTO threads (title, creator) VALUES (?, ?)"
@@ -215,6 +297,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Delete a thread (its posts, documents, and webhooks will be removed via cascade).
    */
+  @traceMethod
   async deleteThread(threadId: number): Promise<void> {
     await this.d1
       .prepare("DELETE FROM threads WHERE id = ?")
@@ -225,6 +308,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Update an existing thread.
    */
+  @traceMethod
   async updateThread(
     threadId: number,
     data: {
@@ -272,6 +356,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Create a post in a thread.
    */
+  @traceMethod
   async createPost(
     threadId: number,
     data: PostCreateData,
@@ -319,17 +404,52 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Retrieve all posts for a given thread (ordered by time).
    */
+  @traceMethod
   async getPosts(threadId: number): Promise<Post[]> {
     const stmt = this.d1.prepare(
-      "SELECT * FROM posts WHERE thread_id = ? ORDER BY time"
+      "SELECT * FROM posts WHERE thread_id = ? ORDER BY time DESC"
     );
     const result = await stmt.bind(threadId).all();
     return (result.results as Post[]) || [];
   }
 
   /**
-   * Update a post's view sount, seen status, and last viewed timestamp.
+   * Retrieve the latest posts for a given thread via cursor-based pagination.
+   *
+   * This method uses the last seen post's time as a cursor to ensure consistent results
+   * even if new posts are added. If no cursor is provided, it returns the first page of posts.
+   *
+   * @param threadId - The thread identifier.
+   * @param limit - The number of posts per page.
+   * @param lastPostTime - Optional. The timestamp of the last post from the previous page.
+   * @returns A promise that resolves to an array of posts.
    */
+  async getLatestPosts(
+    threadId: number,
+    limit: number = 10,
+    lastPostTime?: number
+  ): Promise<Post[]> {
+    let query = "SELECT * FROM posts WHERE thread_id = ? ";
+    const params: any[] = [threadId];
+    // If a cursor is provided, fetch posts older than the last seen post.
+    if (lastPostTime !== undefined) {
+      query += "AND time < ? ";
+      params.push(lastPostTime);
+    }
+
+    // Order by descending time and limit the results.
+    query += "ORDER BY time DESC LIMIT ?";
+    params.push(limit);
+
+    const stmt = this.d1.prepare(query);
+    const result = await stmt.bind(...params).all();
+    return (result.results as Post[]) || [];
+  }
+
+  /**
+   * Update a post's view count, seen status, and last viewed timestamp.
+   */
+  @traceMethod
   async updatePostView(postId: number): Promise<void> {
     await this.d1
       .prepare(
@@ -342,6 +462,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Retrieve a post by its ID.
    */
+  @traceMethod
   async getPost(postId: number): Promise<Post> {
     const stmt = this.d1.prepare("SELECT * FROM posts WHERE id = ?");
     const post = (await stmt.bind(postId).first()) as Post | undefined;
@@ -354,6 +475,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Update an existing post.
    */
+  @traceMethod
   async updatePost(
     postId: number,
     data: { text: string; image?: File }
@@ -396,6 +518,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Delete a post.
    */
+  @traceMethod
   async deletePost(postId: number): Promise<void> {
     await this.d1.prepare("DELETE FROM posts WHERE id = ?").bind(postId).run();
   }
@@ -403,6 +526,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Add a webhook for a thread.
    */
+  @traceMethod
   async addWebhook(
     threadId: number,
     url: string,
@@ -431,6 +555,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Remove a webhook from a thread.
    */
+  @traceMethod
   async removeWebhook(webhookId: number): Promise<void> {
     await this.d1
       .prepare("DELETE FROM webhooks WHERE id = ?")
@@ -441,6 +566,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Get all webhooks for a thread.
    */
+  @traceMethod
   async getThreadWebhooks(threadId: number): Promise<any[]> {
     const stmt = this.d1.prepare(
       "SELECT * FROM webhooks WHERE thread_id = ? ORDER BY created_at"
@@ -452,6 +578,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Update a webhook's last triggered timestamp.
    */
+  @traceMethod
   async updateWebhookLastTriggered(webhookId: number): Promise<void> {
     await this.d1
       .prepare(
@@ -464,7 +591,15 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Create a new document in a thread.
    */
-  async createDocument(threadId: number, data: Document): Promise<Document> {
+  @traceMethod
+  async createDocument(
+    threadId: number,
+    data: {
+      title: string;
+      content: string;
+      type: string;
+    }
+  ): Promise<Document> {
     // Verify the thread exists
     const threadStmt = this.d1.prepare("SELECT * FROM threads WHERE id = ?");
     const thread = await threadStmt.bind(threadId).first();
@@ -497,6 +632,7 @@ export class D1ThreadClient extends ThreadClient {
    * Retrieve a document by its ID.
    * Increments the document's view count.
    */
+  @traceMethod
   async getDocument(documentId: string): Promise<Document | null> {
     const stmt = this.d1.prepare("SELECT * FROM documents WHERE id = ?");
     const document = (await stmt.bind(documentId).first()) as
@@ -518,6 +654,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Update an existing document.
    */
+  @traceMethod
   async updateDocument(
     documentId: string,
     data: {
@@ -570,6 +707,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Delete a document.
    */
+  @traceMethod
   async deleteDocument(documentId: string): Promise<void> {
     await this.d1
       .prepare("DELETE FROM documents WHERE id = ?")
@@ -580,6 +718,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Get all documents for a thread.
    */
+  @traceMethod
   async getThreadDocuments(threadId: number): Promise<Document[]> {
     const stmt = this.d1.prepare(
       "SELECT * FROM documents WHERE thread_id = ? ORDER BY created_at"
@@ -591,6 +730,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Retrieve an API key by its key.
    */
+  @traceMethod
   async getAPIKey(key: string): Promise<APIKey> {
     const stmt = this.d1.prepare("SELECT * FROM api_keys WHERE api_key = ?");
     const apiKey = (await stmt.bind(key).first()) as APIKey | undefined;
@@ -603,6 +743,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Retrieve an API key by its thread ID.
    */
+  @traceMethod
   async getThreadApiKeys(threadId: number): Promise<APIKey[]> {
     const stmt = this.d1.prepare(
       "SELECT * FROM api_keys WHERE thread_id = ? ORDER BY created_at"
@@ -614,6 +755,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Create a new API key for a thread.
    */
+  @traceMethod
   async createAPIKey(
     threadId: number,
     keyName: string,
@@ -630,8 +772,7 @@ export class D1ThreadClient extends ThreadClient {
       INSERT INTO api_keys (thread_id, key_name, api_key, permissions)
       VALUES (?, ?, ?, ?)
     `);
-    // const apiKey = Math.random().toString(36).substring(2);
-
+    // Generate a random API key.
     const apiKeyRaw = crypto.getRandomValues(new Uint8Array(20));
     const apiKey = Array.from(apiKeyRaw)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -658,6 +799,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Update an existing API key.
    */
+  @traceMethod
   async updateAPIKey(key: string, permissions: any): Promise<APIKey> {
     const stmt = this.d1.prepare(`
       UPDATE api_keys
@@ -680,6 +822,7 @@ export class D1ThreadClient extends ThreadClient {
   /**
    * Delete an API key.
    */
+  @traceMethod
   async deleteAPIKey(key: string): Promise<void> {
     await this.d1
       .prepare("DELETE FROM api_keys WHERE api_key = ?")

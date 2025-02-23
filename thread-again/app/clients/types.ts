@@ -88,6 +88,11 @@ export abstract class ThreadClient {
     author?: string
   ): Promise<Post>;
   abstract getPosts(threadId: number): Promise<Post[]>;
+  abstract getLatestPosts(
+    threadId: number,
+    limit: number,
+    lastPostTime?: number
+  ): Promise<Post[]>;
   abstract getPost(postId: number): Promise<Post>;
   abstract updatePost(
     postId: number,
