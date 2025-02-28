@@ -5,6 +5,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
+        mono: ["Ubuntu Mono", "monospace"],
         sans: [
           "Inter",
           "ui-sans-serif",
@@ -14,15 +15,19 @@ export default {
           "Segoe UI Emoji",
           "Segoe UI Symbol",
           "Noto Color Emoji",
+          "Inconsolata",
         ],
+      },
+      spacing: {
+        toc: "16rem",
       },
     },
     colors: {
       // Main background colors
       surface: {
-        primary: "#121212", // Main background
-        secondary: "#1E1E1E", // Sidebar, panels
-        tertiary: "#2D2D2D", // Cards, input fields
+        primary: "#121212",
+        secondary: "#1E1E1E",
+        tertiary: "#2D2D2D",
       },
       // Text colors
       content: {
@@ -41,6 +46,12 @@ export default {
         DEFAULT: "#404040",
         hover: "#4A4A4A",
         active: "#505050",
+      },
+      // Docs
+      quote_alert: {
+        DEFAULT: "#FFD6A5",
+        note: "#3b82f6",
+        text: "#7F4912",
       },
     },
   },

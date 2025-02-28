@@ -123,7 +123,9 @@ export class D1ThreadClient extends ThreadClient {
     // Wrap the provided database with tracing.
     // const tracedD1 = createTracingD1Database(d1);
     const client = new D1ThreadClient(d1);
-    // await client.createTables();
+    // TODO: enable env config to avoid creating tables on startup
+    // as in some cases we'll know that the tables are already created
+    await client.createTables();
     return client;
   }
 

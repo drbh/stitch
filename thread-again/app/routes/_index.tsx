@@ -23,6 +23,7 @@ type LoaderData = {
   activeThreadApiKeys: Promise<APIKey[]>;
   activeThreadPosts: Promise<Post[]>;
   initialViewConfig: {
+    isShareUrl: boolean;
     showSettings: boolean;
     showMenu: boolean;
   };
@@ -34,13 +35,6 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     `[TRACE] Loader started at ${new Date(overallStart).toISOString()}`
   );
 
-  let activeThread = null;
-  let threads = Promise.resolve<Thread[]>([]);
-  let activeThreadWebhooks = Promise.resolve<Webhook[]>([]);
-  let activeThreadDocuments = Promise.resolve<TDocument[]>([]);
-  let activeThreadApiKeys = Promise.resolve<APIKey[]>([]);
-  let activeThreadPosts = Promise.resolve<Post[]>([]);
-
   const url = new URL(request.url);
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
@@ -51,6 +45,51 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   console.log(
     `[TRACE] clientMiddleware took ${Date.now() - middlewareStart}ms`
   );
+
+  if (url.searchParams.has("addBackend")) {
+    const newBackend = url.searchParams.get("addBackend");
+    const backendsJson = context.backendsJson;
+    if (backendsJson) {
+      const newBackendsJsonSerialized = JSON.parse(atob(newBackend));
+      newBackendsJsonSerialized.id = backendsJson.length + 1;
+
+      // make sure the backend is not already in the list
+      const exists = backendsJson.find(
+        (b) => b.url === newBackendsJsonSerialized.url
+      );
+      if (exists) {
+        console.log(`[TRACE] Backend already exists: ${newBackend}`);
+        return new Response(null, { status: 302, headers: { Location: "/" } });
+      }
+
+      backendsJson.push(newBackendsJsonSerialized);
+      const newBackendsJson = JSON.stringify(backendsJson);
+      const backendCookieOptions = [
+        `backends=${newBackendsJson}`,
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Max-Age=31536000",
+      ];
+      const headers = new Headers();
+      headers.append("Set-Cookie", backendCookieOptions.join("; "));
+      headers.append("Location", "/");
+      console.log(`[TRACE] Added new backend: ${newBackend}`);
+      return new Response(null, {
+        headers,
+        status: 302,
+      });
+    }
+  }
+
+  let activeThread = null;
+  let threads = Promise.resolve<Thread[]>([]);
+  let activeThreadWebhooks = Promise.resolve<Webhook[]>([]);
+  let activeThreadDocuments = Promise.resolve<TDocument[]>([]);
+  let activeThreadApiKeys = Promise.resolve<APIKey[]>([]);
+  let activeThreadPosts = Promise.resolve<Post[]>([]);
+  let isShareUrl = false;
 
   const storageClients = context.storageClients;
   const backendsJson = context.backendsJson;
@@ -90,6 +129,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
       const adHocServer = new RestThreadClient(server);
       adHocServer.setNarrowToken(token);
       context.storageClients[server] = adHocServer;
+      isShareUrl = true;
       allowedRoutes = ["/"];
       console.log(
         `[TRACE] AdHoc server added for ${server}. Allowed routes set to ${allowedRoutes.join(
@@ -113,33 +153,50 @@ export const loader: LoaderFunction = async ({ request, context }) => {
       activeThreadDocuments,
       activeThreadApiKeys,
       activeThreadPosts,
-      initialViewConfig: { showSettings: false, showMenu: false },
+      initialViewConfig: {
+        isShareUrl: false,
+        showSettings: false,
+        showMenu: false,
+      },
     };
     return data;
   }
 
+  const multiThreadPromise = [];
   // Loop through servers and fetch threads.
   for (const srv of servers) {
     try {
       const serverStart = Date.now();
-      const serverThreads = storageClients[srv].getThreads();
+      const serverThreads = storageClients[srv]
+        .getThreads()
+        .then((threads) => threads)
+        .catch(() => {
+          console.error(`[TRACE] Error fetching threads from ${srv}`);
+          return [];
+        });
       console.log(
         `[TRACE] getThreads for server "${srv}" took ${
           Date.now() - serverStart
         }ms`
       );
-      threads = serverThreads.then((serverThreads) => {
-        serverThreads.forEach((thread) => {
-          thread.location = srv;
-        });
-        return serverThreads;
-      });
+      serverThreads
+        .then((serverThreads) => {
+          serverThreads.forEach((thread) => {
+            thread.location = srv;
+          });
+          return serverThreads;
+        })
+        .catch(() => []);
+      multiThreadPromise.push(serverThreads);
     } catch (error) {
       console.error(
         `[TRACE] Error fetching threads from ${srv}: ${error.message}`
       );
     }
   }
+  threads = Promise.all(multiThreadPromise).then((threadList) => {
+    return threadList.flat();
+  });
 
   // If a specific thread is requested, fetch it and its related data.
   if (threadId && server && activeThread === null) {
@@ -178,7 +235,6 @@ export const loader: LoaderFunction = async ({ request, context }) => {
           .getLatestPosts(parseInt(threadId), 10)
           .then((posts) => posts)
           .catch(() => []);
-
       }
     } catch (error) {
       console.error(`[TRACE] Error fetching active thread: ${error.message}`);
@@ -201,6 +257,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   );
 
   const initialViewConfig = {
+    isShareUrl,
     showSettings: false,
     showMenu: false,
   };
@@ -593,6 +650,11 @@ export default function Index() {
     activeThreadPosts,
   } = useLoaderData<LoaderData>();
 
+  // updapte showSettings to be true if there are no backends and were not shared
+  if (backendMetadata.length === 0 && !initialViewConfig.isShareUrl) {
+    initialViewConfig.showSettings = true;
+  }
+
   const setActiveThread = (thread: Thread | null) => {
     const url = new URL(window.location.toString());
     if (!thread) {
@@ -640,25 +702,36 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-surface-primary text-content-primary">
-      <Topbar
-        openSettings={() => setShowSettings(true)}
-        toggleOpenMenu={() => setShowMenu(!showMenu)}
-      />
-      <div className="flex">
-        <Sidebar
-          servers={servers}
-          threads={threads}
-          setActiveThread={setActiveThread}
-          activeThread={activeThread}
-          showMenu={showMenu}
-          setShowMenu={setShowMenu}
+      {!initialViewConfig.isShareUrl && (
+        <Topbar
+          openSettings={() => setShowSettings(true)}
+          toggleOpenMenu={() => setShowMenu(!showMenu)}
         />
+      )}
+      {initialViewConfig.isShareUrl && (
+        <div className="h-16 bg-surface-tertiary border-b border-border shadow-lg flex justify-center items-center px-6">
+          Note: You are viewing a shared thread. This is a read-only view.
+        </div>
+      )}
+      <div className="flex">
+        {/* TODO handle share */}
+        {!initialViewConfig.isShareUrl && (
+          <Sidebar
+            servers={servers}
+            threads={threads}
+            setActiveThread={setActiveThread}
+            activeThread={activeThread}
+            showMenu={showMenu}
+            setShowMenu={setShowMenu}
+          />
+        )}
         <MainContent
           activeThread={activeThread}
           activeThreadPosts={activeThreadPosts}
           activeThreadWebhooks={activeThreadWebhooks}
           activeThreadDocuments={activeThreadDocuments}
           activeThreadApiKeys={activeThreadApiKeys}
+          isShareUrl={initialViewConfig.isShareUrl}
         />
         {/* <DocumentPanel /> */}
       </div>
@@ -669,6 +742,38 @@ export default function Index() {
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      {/* Bottom bar */}
+      <div className="absolute bottom-0 w-full bg-surface-secondary border-t border-border shadow-lg p-2">
+        <div className="flex justify-between items-center">
+          <div className="text-sm text-gray-500">
+            <button
+              className="ml-2 text-sm text-gray-500 flex items-center gap-2"
+              onClick={() => setShowSettings(true)}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              Settings
+            </button>
+          </div>
+
+          <div className="text-sm text-gray-500 text-end opacity-50">
+            &copy; {new Date().getFullYear()} Stitch | Built with ❤️ by drbh |
+            Version 0.0.1
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -682,23 +787,141 @@ function Topbar({
 }) {
   return (
     <header className="h-16 bg-surface-secondary border-b border-border shadow-lg flex justify-between items-center px-6">
-      <div className="flex items-center">
+      <div className="flex items-center gap-2">
         {toggleOpenMenu && (
           <button
             onClick={() => toggleOpenMenu((isOpen) => !isOpen)}
-            className="lg:hidden mr-4"
+            className="lg:hidden mr-2 p-1 rounded hover:bg-gray-100 transition-colors"
+            aria-label="Toggle menu"
           >
-            <MenuIcon />
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
           </button>
         )}
-        <h1 className="text-xl font-bold text-content-accent">Threads</h1>
+
+        <div className="flex items-center">
+          <svg
+            width="50"
+            height="50"
+            viewBox="0 0 200 200"
+            xmlns="http://www.w3.org/2000/svg"
+            className="mr-3"
+          >
+            <defs>
+              <linearGradient
+                id="threadGradient"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop offset="0%" stopColor="#3B82F6" />
+                <stop offset="100%" stopColor="#8B5CF6" />
+              </linearGradient>
+            </defs>
+            <g
+              fill="none"
+              stroke="url(#threadGradient)"
+              strokeWidth="16"
+              strokeLinecap="round"
+            >
+              {/* Main thread line */}
+              <path d="M50,30 C120,30 80,100 150,100" />
+              <circle
+                cx="50"
+                cy="30"
+                r="12"
+                fill="url(#threadGradient)"
+                stroke="none"
+              />
+
+              {/* essentially the above flipped */}
+              <path d="M50,150 C100,220 120,100  150,100" />
+              <circle
+                cx="50"
+                cy="150"
+                r="12"
+                fill="url(#threadGradient)"
+                stroke="none"
+              />
+              <path d="M55,65 C90,65 90,5 150,100" />
+              <circle
+                cx="55"
+                cy="65"
+                r="12"
+                fill="url(#threadGradient)"
+                stroke="none"
+              />
+              <path d="M45,110 C80,60 60,160 150,100" />
+              <circle
+                cx="45"
+                cy="110"
+                r="12"
+                fill="url(#threadGradient)"
+                stroke="none"
+              />
+
+              {/* center node */}
+              <circle
+                cx="150"
+                cy="100"
+                r="20"
+                fill="url(#threadGradient)"
+                stroke="none"
+              />
+            </g>
+          </svg>
+
+          <div className="flex flex-col">
+            <h1 className="text-xl font-bold text-content-accent leading-none">
+              Stitch
+            </h1>
+            <span className="text-xs text-gray-500 opacity-50">
+              by stitch.sh
+            </span>
+          </div>
+        </div>
       </div>
-      <button
-        onClick={openSettings}
-        className="text-content-accent hover:underline"
-      >
-        Settings
-      </button>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            window.open(
+              "https://github.com/drbh/thread",
+              "_blank",
+              "noopener,noreferrer"
+            );
+          }}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-content-accent hover:bg-gray-100 rounded transition-colors"
+          aria-label="GitHub"
+        >
+          <span>Star us on GitHub</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </button>
+      </div>
     </header>
   );
 }
@@ -787,9 +1010,9 @@ function Sidebar({
       {/* Sidebar */}
       <aside
         className={`
+          bg-surface-primary
           fixed lg:relative top-16
           w-80 h-[calc(100vh-64px)]
-          bg-surface-secondary
           border-r border-border
           overflow-y-auto
           transition-transform duration-300 ease-in-out
@@ -932,8 +1155,6 @@ function ThreadList({
             // a skeleton loader
             <div className="space-y-4">
               <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
             </div>
           }
         >
@@ -1052,8 +1273,6 @@ function ThreadSettingView({
             // a skeleton loader
             <div className="space-y-4">
               <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
             </div>
           }
         >
@@ -1091,12 +1310,14 @@ function MainContent({
   activeThreadWebhooks,
   activeThreadDocuments,
   activeThreadApiKeys,
+  isShareUrl,
 }: {
   activeThread: Thread | null;
   activeThreadPosts: Promise<Post[]>;
   activeThreadWebhooks: Promise<Webhook[]>;
   activeThreadDocuments: Promise<TDocument[]>;
   activeThreadApiKeys: Promise<APIKey[]>;
+  isShareUrl: boolean;
 }) {
   enum Tab {
     Posts = "posts",
@@ -1190,7 +1411,6 @@ function MainContent({
       setCounts((prev) => ({ ...prev, access: apiKeys.length }));
     });
     activeThreadPosts.then((posts) => {
-      console.log(posts);
       setCounts((prev) => ({ ...prev, posts: posts.length }));
     });
 
@@ -1288,19 +1508,6 @@ function MainContent({
               </span>
             </button>
             <button
-              onClick={() => handleTabChange(Tab.Webhooks)}
-              className={`${
-                currentTab === "webhooks"
-                  ? "bg-interactive text-content-primary"
-                  : "bg-surface-tertiary text-content-accent"
-              } px-6 py-2 rounded-lg font-medium`}
-            >
-              Webhooks
-              <span className="ml-2 text-xs text-content-secondary">
-                ({counts.settings})
-              </span>
-            </button>
-            <button
               onClick={() => handleTabChange(Tab.Documents)}
               className={`${
                 currentTab === "documents"
@@ -1313,32 +1520,53 @@ function MainContent({
                 ({counts.documents})
               </span>
             </button>
-            <button
-              onClick={() => handleTabChange(Tab.Access)}
-              className={`${
-                currentTab === "access"
-                  ? "bg-interactive text-content-primary"
-                  : "bg-surface-tertiary text-content-accent"
-              } px-6 py-2 rounded-lg font-medium`}
-            >
-              Access
-              <span className="ml-2 text-xs text-content-secondary">
-                ({counts.access})
-              </span>
-            </button>
-            <button
-              onClick={handleShareUrlCreate}
-              className="bg-surface-tertiary text-content-accent px-6 py-2 rounded-lg font-medium"
-            >
-              Share URL
-            </button>
+            <div></div>
+            {/* TODO handle share better */}
+            {!isShareUrl && (
+              <>
+                <button
+                  onClick={() => handleTabChange(Tab.Webhooks)}
+                  className={`${
+                    currentTab === "webhooks"
+                      ? "bg-interactive text-content-primary"
+                      : "bg-surface-tertiary text-content-accent"
+                  } px-6 py-2 rounded-lg font-medium`}
+                >
+                  Webhooks
+                  <span className="ml-2 text-xs text-content-secondary">
+                    ({counts.settings})
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => handleTabChange(Tab.Access)}
+                  className={`${
+                    currentTab === "access"
+                      ? "bg-interactive text-content-primary"
+                      : "bg-surface-tertiary text-content-accent"
+                  } px-6 py-2 rounded-lg font-medium`}
+                >
+                  Access
+                  <span className="ml-2 text-xs text-content-secondary">
+                    ({counts.access})
+                  </span>
+                </button>
+                <button
+                  onClick={handleShareUrlCreate}
+                  className="max-h-10 overflow-truncate truncate bg-surface-tertiary text-content-accent px-6 py-2 rounded-lg font-medium"
+                >
+                  Share URL
+                </button>
+              </>
+            )}
           </div>
 
           {currentTab === "posts" && (
             <div>
-              <PostComposer />
+              {!isShareUrl && <PostComposer />}
               <Thread
                 thread={activeThread}
+                isShareUrl={isShareUrl}
                 activeThreadPosts={activeThreadPosts}
               />
             </div>
@@ -1352,37 +1580,37 @@ function MainContent({
                 Documents
               </h2>
 
-              <div className="bg-surface-secondary rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-content-accent mb-2">
-                  Add Document
-                </h3>
-                <form className="space-y-4" onSubmit={handleDocumentSubmit}>
-                  <input
-                    type="text"
-                    placeholder="Document Title"
-                    className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
-                  />
-                  <textarea
-                    placeholder="Document Content"
-                    required={false}
-                    className="w-full px-4 py-2 h-32 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
-                  />
-                  <button
-                    type="submit"
-                    className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
-                  >
+              {!isShareUrl && (
+                <div className="bg-surface-secondary rounded-lg shadow-lg p-6">
+                  <h3 className="text-lg font-semibold text-content-accent mb-2">
                     Add Document
-                  </button>
-                </form>
-              </div>
+                  </h3>
+                  <form className="space-y-4" onSubmit={handleDocumentSubmit}>
+                    <input
+                      type="text"
+                      placeholder="Document Title"
+                      className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+                    />
+                    <textarea
+                      placeholder="Document Content"
+                      required={false}
+                      className="w-full px-4 py-2 h-32 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
+                    />
+                    <button
+                      type="submit"
+                      className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
+                    >
+                      Add Document
+                    </button>
+                  </form>
+                </div>
+              )}
 
               <div>
                 <Suspense
                   fallback={
                     // a skeleton loader
                     <div className="space-y-4">
-                      <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-                      <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
                       <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
                     </div>
                   }
@@ -1396,14 +1624,16 @@ function MainContent({
                               key={document.id}
                               className="bg-surface-tertiary p-4 rounded-lg"
                             >
-                              <button
-                                className="text-xs text-content-accent float-right mt-1"
-                                onClick={(e) =>
-                                  handleDocumentRemove(e, document.id)
-                                }
-                              >
-                                <CloseIcon />
-                              </button>
+                              {!isShareUrl && (
+                                <button
+                                  className="text-xs text-content-accent float-right mt-1"
+                                  onClick={(e) =>
+                                    handleDocumentRemove(e, document.id)
+                                  }
+                                >
+                                  <CloseIcon />
+                                </button>
+                              )}
                               <div>{document.title}</div>
                               <div>{document.content}</div>
                             </li>
@@ -1445,8 +1675,6 @@ function MainContent({
                   fallback={
                     // a skeleton loader
                     <div className="space-y-4">
-                      <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-                      <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
                       <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
                     </div>
                   }
@@ -1496,9 +1724,11 @@ function MainContent({
 function Thread({
   thread,
   activeThreadPosts,
+  isShareUrl,
 }: {
   thread: Thread;
   activeThreadPosts: Promise<Post[]>;
+  isShareUrl: boolean;
 }) {
   const fetcher = useFetcher<{ success: boolean }>();
 
@@ -1529,8 +1759,6 @@ function Thread({
               // a skeleton loader
               <div className="space-y-4">
                 <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
               </div>
             }
           >
@@ -1542,12 +1770,14 @@ function Thread({
                       key={post.id}
                       className="bg-surface-tertiary p-4 rounded-lg"
                     >
-                      <button
-                        className="text-xs text-content-accent float-right mt-1"
-                        onClick={(e) => handlePostDelete(e, post.id)}
-                      >
-                        <CloseIcon />
-                      </button>
+                      {!isShareUrl && (
+                        <button
+                          className="text-xs text-content-accent float-right mt-1"
+                          onClick={(e) => handlePostDelete(e, post.id)}
+                        >
+                          <CloseIcon />
+                        </button>
+                      )}
                       <div>{post.author}</div>
                       <div>{post.time}</div>
                       {post.image && (

@@ -1,0 +1,131 @@
+.markdown-content {
+  /* Headings */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply text-content-primary font-bold mb-4 mt-6 scroll-mt-20;
+  }
+  h1 {
+    @apply text-3xl;
+  }
+  h2 {
+    @apply text-2xl;
+  }
+  h3 {
+    @apply text-xl;
+  }
+  h4 {
+    @apply text-lg;
+  }
+  h5,
+  h6 {
+    @apply text-base;
+  }
+
+  /* Paragraphs and spacing */
+  p {
+    @apply text-content-secondary mb-4 leading-relaxed;
+  }
+
+  /* Lists */
+  ul,
+  ol {
+    @apply mb-4 pl-6 text-content-secondary;
+  }
+  ul {
+    @apply list-disc;
+  }
+  ol {
+    @apply list-decimal;
+  }
+  li {
+    @apply mb-2;
+  }
+
+  /* Links */
+  a {
+    @apply text-content-accent hover:underline;
+  }
+
+  /* Code blocks */
+  pre {
+    @apply bg-surface-tertiary p-4 rounded-lg mb-4 overflow-x-auto;
+    code {
+      @apply text-content-primary;
+    }
+  }
+
+  /* Inline code */
+  code {
+    @apply bg-surface-tertiary px-1.5 py-0.5 rounded text-content-accent;
+  }
+
+  /* Blockquotes */
+  blockquote {
+    @apply border-l-4 border-border pl-4 italic text-content-tertiary mb-4;
+  }
+
+  /* Tables */
+  table {
+    @apply w-full mb-4 border-collapse;
+    th,
+    td {
+      @apply border border-border p-2 text-content-secondary;
+    }
+    th {
+      @apply bg-surface-tertiary text-content-primary font-semibold;
+    }
+  }
+
+  /* Horizontal rule */
+  hr {
+    @apply border-border my-8;
+  }
+
+  /* Images */
+  img {
+    @apply max-w-full h-auto rounded-lg mb-4;
+  }
+
+  /* table must have centered element  */
+  td:not(:first-child) {
+    text-align: center;
+  }
+
+  li::marker {
+    /* font-size: 1.5em; */
+    /* line-height: 1em; */
+  }
+
+  li.similar::marker {
+    /* color: blue; */
+  }
+
+  li.different::marker {
+    /* color: rgb(242, 255, 1); */
+    /* font-size: 1.5em; */
+
+    content: "🔥 "; /* Fire emoji as a marker */
+  }
+
+  /* blockquote {
+    padding: 0;
+    border: none;
+  } */
+
+  .brand {
+    color: #1c1c1c;
+    font-weight: bold;
+    /* space kerning a tiny bit */
+    letter-spacing: 0.05em;
+    /* background-color: #e9d41a; */
+    background-color: #989797;
+    padding: 0.05em 0.2em;
+    border-radius: 0.2em;
+    /* make a bit smaller so its inline with normal text */
+    font-size: 0.9em;
+  }
+}

@@ -7,14 +7,18 @@ interface BackendConnectionItemProps {
   connection: BackendConnection;
   onUpdate: (updated: BackendConnection) => void;
   onRemove: (id: string) => void;
+  onCancel: () => void;
+  isEditingOpen?: boolean;
 }
 
 function BackendConnectionItem({
   connection,
   onUpdate,
   onRemove,
+  onCancel,
+  isEditingOpen = false,
 }: BackendConnectionItemProps) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(isEditingOpen);
   const [editingData, setEditingData] = useState<BackendConnection>(connection);
 
   useEffect(() => {
@@ -33,6 +37,9 @@ function BackendConnectionItem({
   };
 
   const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
+    }
     setEditingData(connection);
     setIsEditing(false);
   };
@@ -158,6 +165,7 @@ function SettingsModal({
   const [backends, setBackends] =
     useState<BackendConnection[]>(backendMetadata);
   const [selectedView, setSelectedView] = useState<SettingsView>("backends");
+  const [editingBackendId, setEditingBackendId] = useState<string | null>(null);
 
   // Backend-related handlers
   const updateBackend = (updated: BackendConnection) => {
@@ -171,11 +179,21 @@ function SettingsModal({
   };
 
   const addBackend = () => {
+    const backendId = uuidv4();
     setBackends((prev) => [
       ...prev,
-      { id: uuidv4(), name: "", url: "", token: "", isActive: true },
+      { id: backendId, name: "", url: "", token: "", isActive: true },
     ]);
+
+    // use the backendId to open the modal for the new backend once its added
+    setEditingBackendId(backendId);
   };
+
+  useEffect(() => {
+    if (editingBackendId) {
+      console.log("editingBackendId", editingBackendId);
+    }
+  }, [editingBackendId]);
 
   // TODO: refactor and consolidate all the API key logic
 
@@ -220,6 +238,9 @@ function SettingsModal({
       },
       { method: "post" }
     );
+
+    // close the modal
+    onClose();
   };
 
   // Close the modal upon a successful update.
@@ -276,6 +297,14 @@ function SettingsModal({
                     connection={backend}
                     onUpdate={updateBackend}
                     onRemove={removeBackend}
+                    onCancel={() => {
+                      // if the backend is new, remove it
+                      if (!backend.name && !backend.url) {
+                        removeBackend(backend.id);
+                      }
+                      setEditingBackendId(null);
+                    }}
+                    isEditingOpen={editingBackendId === backend.id}
                   />
                 ))}
                 <button

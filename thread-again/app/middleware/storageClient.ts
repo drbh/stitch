@@ -29,25 +29,6 @@ export const clientMiddleware = async (
   const env = process.env.NODE_ENV;
   if (backendsJson.length == 0) {
     const defaultBackends = [];
-    if (env === "development") {
-      defaultBackends.push({
-        id: "0",
-        name: "Default",
-        url: "local",
-        token: "",
-        isActive: true,
-      });
-    } else {
-      // NODE_ENV is only set in development mode.
-      // TODO: review a better way to handle this.
-      defaultBackends.push({
-        id: "1",
-        name: "Default",
-        url: "d1",
-        token: "",
-        isActive: true,
-      });
-    }
     backendsJson.push(...defaultBackends);
   }
   // const serversValue = backendsJson.map((backend) => backend.url);
