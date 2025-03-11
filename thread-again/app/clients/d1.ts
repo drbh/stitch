@@ -1,3 +1,4 @@
+import { R2Object, R2ObjectBody } from "@cloudflare/workers-types";
 import { ThreadClient } from "../clients/types";
 import type {
   Thread,
@@ -21,13 +22,13 @@ interface D1Result {
     last_row_id: number;
   };
 }
-interface D1PreparedStatement {
+export interface D1PreparedStatement {
   bind(...params: any[]): D1PreparedStatement;
   run(): Promise<D1Result>;
   all(): Promise<D1Result>;
   first(): Promise<any | undefined>;
 }
-interface D1Database {
+export interface D1Database {
   prepare(query: string): D1PreparedStatement;
 }
 
@@ -107,11 +108,13 @@ function traceMethod(
  */
 export class D1ThreadClient extends ThreadClient {
   private d1: D1Database;
+  private bucket: any;
 
   // Private constructor; use the static initialize() method to create an instance.
-  private constructor(d1: D1Database) {
+  private constructor(d1: D1Database, bucket: any) {
     super();
     this.d1 = d1;
+    this.bucket = bucket;
   }
 
   /**
@@ -119,10 +122,13 @@ export class D1ThreadClient extends ThreadClient {
    * (Schema migrations are usually handled separately in production.)
    */
   @traceMethod
-  static async initialize(d1: D1Database): Promise<D1ThreadClient> {
+  static async initialize(
+    d1: D1Database,
+    bucket: any
+  ): Promise<D1ThreadClient> {
     // Wrap the provided database with tracing.
     // const tracedD1 = createTracingD1Database(d1);
-    const client = new D1ThreadClient(d1);
+    const client = new D1ThreadClient(d1, bucket);
     // TODO: enable env config to avoid creating tables on startup
     // as in some cases we'll know that the tables are already created
     await client.createTables();
@@ -371,12 +377,22 @@ export class D1ThreadClient extends ThreadClient {
       throw new Error("Thread not found");
     }
 
+    const image = data.image;
+    if (!image) {
+      throw new Error("Image not found");
+    }
+
+    const imageBuffer = await image.arrayBuffer();
+    const imageArray = new Uint8Array(imageBuffer);
+    const objectName = `uploads/${threadId}-${Date.now()}-${image.name}`;
+    const object = await this.bucket.put(objectName, imageArray);
+
     const stmt = this.d1.prepare(`
       INSERT INTO posts (thread_id, author, text, image, is_initial_post)
       VALUES (?, ?, ?, ?, ?)
     `);
     const result = await stmt
-      .bind(threadId, author, data.text, data.image || null, 0)
+      .bind(threadId, author, data.text, objectName || null, 0)
       .run();
 
     // Update the thread's reply count and last activity.
@@ -401,6 +417,19 @@ export class D1ThreadClient extends ThreadClient {
       .bind(postId)
       .first();
     return post as Post;
+  }
+
+  /**
+   * Get the file contents for a post's image (from the bucket).
+   */
+  @traceMethod
+  async getPostImage(fileId: string): Promise<R2ObjectBody | null> {
+    const object: R2ObjectBody = await this.bucket.get(fileId);
+    if (!object) {
+      return null;
+    }
+
+    return object
   }
 
   /**

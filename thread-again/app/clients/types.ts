@@ -22,7 +22,7 @@ export interface ThreadCreateData {
   title: string;
   creator: string;
   initial_post: string;
-  image?: string;
+  image?: File;
 }
 
 export interface Post {
@@ -41,7 +41,7 @@ export interface Post {
 
 export interface PostCreateData {
   text: string;
-  image?: string;
+  image?: File;
 }
 
 export interface Document {

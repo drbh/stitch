@@ -1,34 +1,65 @@
-import { Router, RouterType } from 'itty-router';
+import { Router, RouterType, IRequest } from 'itty-router';
 import { D1ThreadClient, createTracingD1Database } from '../../thread-again/app/clients/d1';
 import type { ThreadCreateData, PostCreateData } from '../../thread-again/app/clients/types';
+import { ApiOperation, generateOpenApiSpec } from './openapi';
 
 export interface Env {
 	DB: D1Database;
 	router?: RouterType;
 	threadClient?: D1ThreadClient;
 	API_KEY: string;
+	BUCKET1?: R2Bucket;
+}
+
+interface DocumentCreateRequest {
+	thread_id: number;
+	title: string;
+	content: string;
+	type: string;
+}
+
+interface WebhookCreateRequest {
+	url: string;
+	api_key?: string;
+}
+
+interface ApiKeyUpdateRequest {
+	permissions: string;
+}
+
+interface PostUpdateRequest {
+	text: string;
+	image?: File;
 }
 
 /**
  * Decorator for route tracing.
  * Logs method entry (with the request URL), exit (with duration), and errors.
  */
-function routeTrace(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+function routeTrace(target: Object, propertyKey: string | symbol, descriptor: PropertyDescriptor): PropertyDescriptor {
 	const originalMethod = descriptor.value;
-	descriptor.value = async function (...args: any[]) {
-		const request = args[0] as Request;
-		// console.log(`[TRACE] Entering ${propertyKey} with URL: ${request.url}`);
+
+	descriptor.value = async function(request: IRequest) {
 		const start = Date.now();
 		try {
-			const result = await originalMethod.apply(this, args);
-			console.log(`[TRACE] Exiting ${propertyKey} in ${Date.now() - start}ms`);
+			const result = await originalMethod.call(this, request);
+			console.log(`[TRACE] Exiting ${String(propertyKey)} in ${Date.now() - start}ms`);
 			return result;
 		} catch (error) {
-			console.error(`[TRACE] Error in ${propertyKey}:`, error);
+			console.error(`[TRACE] Error in ${String(propertyKey)}:`, error);
 			throw error;
 		}
 	};
 	return descriptor;
+}
+
+// Helper function to compose decorators
+function compose(...decorators: Array<(target: any, propertyKey: string | symbol, descriptor: TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>) => TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>>): MethodDecorator {
+	return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
+		return decorators.reduceRight((desc, decorator) => {
+			return decorator(target, propertyKey, desc as TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>) || desc;
+		}, descriptor);
+	};
 }
 
 /**
@@ -37,6 +68,7 @@ function routeTrace(target: any, propertyKey: string, descriptor: PropertyDescri
 class ApiMiddleware {
 	constructor(private env: Env) {}
 
+	// @ts-ignore - Method decorator type compatibility
 	@routeTrace
 	async auth(request: Request): Promise<Response | void> {
 		const authHeader = request.headers.get('Authorization');
@@ -109,8 +141,54 @@ class ApiRoutes {
 		this.middleware = new ApiMiddleware(env);
 	}
 
+	@ApiOperation({
+		path: '/api/docs/openapi.json',
+		method: 'get',
+		summary: 'Get OpenAPI Specification',
+		description: 'Returns the OpenAPI specification for the API',
+		tags: ['Documentation'],
+		responses: {
+			'200': {
+				description: 'OpenAPI specification',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object'
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
-	async getThreads(request: Request): Promise<Response> {
+	async getOpenApiSpec(request: IRequest): Promise<Response> {
+		return Response.json(generateOpenApiSpec());
+	}
+
+	@ApiOperation({
+		path: '/api/threads',
+		method: 'get',
+		summary: 'Get all threads',
+		description: 'Returns a list of all threads',
+		tags: ['Threads'],
+		responses: {
+			'200': {
+				description: 'List of threads',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								$ref: '#/components/schemas/Thread'
+							}
+						}
+					}
+				}
+			}
+		}
+	})
+	@routeTrace
+	async getThreads(request: IRequest): Promise<Response> {
 		try {
 			const threads = await this.env.threadClient!.getThreads();
 			return Response.json(threads);
@@ -119,8 +197,41 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}',
+		method: 'get',
+		summary: 'Get thread by ID',
+		description: 'Returns a single thread by its ID',
+		tags: ['Threads'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Thread found',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Thread'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Thread not found'
+			}
+		}
+	})
 	@routeTrace
-	async getThreadById(request: Request): Promise<Response> {
+	async getThreadById(request: IRequest): Promise<Response> {
 		const { threadId } = (request as any).params;
 		const id = Number(threadId);
 		if (isNaN(id)) {
@@ -133,11 +244,63 @@ class ApiRoutes {
 		return Response.json(thread);
 	}
 
+	@ApiOperation({
+		path: '/api/threads',
+		method: 'post',
+		summary: 'Create a new thread',
+		description: 'Creates a new thread with the provided details',
+		tags: ['Threads'],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							title: { type: 'string' },
+							creator: { type: 'string' }
+						},
+						required: ['title', 'creator']
+					}
+				},
+				'multipart/form-data': {
+					schema: {
+						type: 'object',
+						properties: {
+							title: { type: 'string' },
+							creator: { type: 'string' }
+						},
+						required: ['title', 'creator']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'Thread created successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Thread'
+						}
+					}
+				}
+			},
+			'400': {
+				description: 'Invalid request'
+			}
+		}
+	})
 	@routeTrace
-	async createThread(request: Request): Promise<Response> {
+	async createThread(request: IRequest): Promise<Response> {
 		try {
 			const data = await request.formData();
-			const image = data.get('image') as File | undefined;
+			const imageFile = data.get('image');
+			let image: File | undefined = undefined;
+
+			if (imageFile && typeof imageFile !== 'string') {
+				image = imageFile as File;
+			}
+
 			const threadData: ThreadCreateData = {
 				title: data.get('title') as string,
 				creator: data.get('creator') as string,
@@ -151,6 +314,32 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}',
+		method: 'delete',
+		summary: 'Delete a thread',
+		description: 'Deletes a thread by its ID',
+		tags: ['Threads'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to delete'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Thread deleted successfully'
+			},
+			'404': {
+				description: 'Thread not found'
+			}
+		}
+	})
 	@routeTrace
 	async deleteThread(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -166,6 +355,51 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}',
+		method: 'put',
+		summary: 'Update a thread',
+		description: 'Updates a thread by its ID',
+		tags: ['Threads'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to update'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							title: { type: 'string' }
+						}
+					}
+				}
+			}
+		},
+		responses: {
+			'200': {
+				description: 'Thread updated successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Thread'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Thread not found'
+			}
+		}
+	})
 	@routeTrace
 	async updateThread(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -185,6 +419,49 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}/posts',
+		method: 'post',
+		summary: 'Create a user post',
+		description: 'Creates a new user post in a thread',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to create post in'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							text: { type: 'string' }
+						},
+						required: ['text']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'Post created successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Post'
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async createUserPost(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -198,6 +475,7 @@ class ApiRoutes {
 				text: data.get('text') as string,
 				image: data.get('image') as File | undefined,
 			};
+			console.log('🌈🌈🌈 postData', postData);
 			const post = await this.env.threadClient!.createPost(id, postData, 'user');
 			// Notify all webhooks
 			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
@@ -227,6 +505,49 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/system/threads/{threadId}/posts',
+		method: 'post',
+		summary: 'Create a system post',
+		description: 'Creates a new system post in a thread',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to create system post in'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							text: { type: 'string' }
+						},
+						required: ['text']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'System post created successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Post'
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async createSystemPost(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -235,7 +556,7 @@ class ApiRoutes {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
-			const data = await request.json();
+			const data = await request.json() as PostCreateData;
 			const post = await this.env.threadClient!.createPost(id, data, 'system');
 			// Notify all webhooks
 			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
@@ -265,6 +586,39 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}/posts',
+		method: 'get',
+		summary: 'Get posts for a thread',
+		description: 'Returns all posts for a thread',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve posts from'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'List of posts',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								$ref: '#/components/schemas/Post'
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async getPosts(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -280,6 +634,57 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/latest/{threadId}/{limit}/{lastPostTime}',
+		method: 'get',
+		summary: 'Get latest posts for a thread',
+		description: 'Returns the latest posts for a thread based on the limit and lastPostTime parameters',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve posts from'
+			},
+			{
+				name: 'limit',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'Maximum number of posts to retrieve'
+			},
+			{
+				name: 'lastPostTime',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'string'
+				},
+				description: 'Timestamp of the last post retrieved'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'List of latest posts',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								$ref: '#/components/schemas/Post'
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async getLatestPosts(request: Request): Promise<Response> {
 		const { threadId: _threadId, limit: _limit, lastPostTime: _lastPostTime } = (request as any).params;
@@ -302,6 +707,39 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}/documents',
+		method: 'get',
+		summary: 'Get documents for a thread',
+		description: 'Returns all documents for a thread',
+		tags: ['Documents'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve documents from'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'List of documents',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								$ref: '#/components/schemas/Document'
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async getDocuments(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -317,10 +755,45 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/documents',
+		method: 'post',
+		summary: 'Create a document',
+		description: 'Creates a new document',
+		tags: ['Documents'],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							thread_id: { type: 'integer' },
+							title: { type: 'string' },
+							content: { type: 'string' },
+							type: { type: 'string' }
+						},
+						required: ['thread_id', 'title', 'content', 'type']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'Document created successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Document'
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async createDocument(request: Request): Promise<Response> {
 		try {
-			const data = await request.json();
+			const data = await request.json() as DocumentCreateRequest;
 			const document = await this.env.threadClient!.createDocument(data.thread_id, {
 				title: data.title,
 				content: data.content,
@@ -332,6 +805,39 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/documents/{docId}',
+		method: 'get',
+		summary: 'Get document by ID',
+		description: 'Returns a document by its ID',
+		tags: ['Documents'],
+		parameters: [
+			{
+				name: 'docId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the document to retrieve'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Document found',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Document'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Document not found'
+			}
+		}
+	})
 	@routeTrace
 	async getDocument(request: Request): Promise<Response> {
 		const { docId } = (request as any).params;
@@ -346,6 +852,32 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/documents/{docId}',
+		method: 'delete',
+		summary: 'Delete a document',
+		description: 'Deletes a document by its ID',
+		tags: ['Documents'],
+		parameters: [
+			{
+				name: 'docId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the document to delete'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Document deleted successfully'
+			},
+			'404': {
+				description: 'Document not found'
+			}
+		}
+	})
 	@routeTrace
 	async deleteDocument(request: Request): Promise<Response> {
 		const { docId } = (request as any).params;
@@ -357,11 +889,58 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/documents/{docId}',
+		method: 'put',
+		summary: 'Update a document',
+		description: 'Updates a document by its ID',
+		tags: ['Documents'],
+		parameters: [
+			{
+				name: 'docId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the document to update'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							title: { type: 'string' },
+							content: { type: 'string' },
+							type: { type: 'string' }
+						}
+					}
+				}
+			}
+		},
+		responses: {
+			'200': {
+				description: 'Document updated successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Document'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Document not found'
+			}
+		}
+	})
 	@routeTrace
 	async updateDocument(request: Request): Promise<Response> {
 		try {
 			const { docId } = (request as any).params;
-			const data = await request.json();
+			const data = await request.json() as DocumentCreateRequest;
 			const document = await this.env.threadClient!.updateDocument(docId, {
 				title: data.title,
 				content: data.content,
@@ -373,6 +952,44 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}/webhooks',
+		method: 'get',
+		summary: 'Get webhooks for a thread',
+		description: 'Returns all webhooks for a thread',
+		tags: ['Webhooks'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve webhooks from'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'List of webhooks',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									id: { type: 'integer' },
+									thread_id: { type: 'integer' },
+									url: { type: 'string' }
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async getWebhooks(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -388,6 +1005,55 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/threads/{threadId}/webhooks',
+		method: 'post',
+		summary: 'Add a webhook',
+		description: 'Adds a new webhook to a thread',
+		tags: ['Webhooks'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to add webhook to'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							url: { type: 'string' },
+							api_key: { type: 'string' }
+						},
+						required: ['url']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'Webhook added successfully',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								id: { type: 'integer' },
+								thread_id: { type: 'integer' },
+								url: { type: 'string' }
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async addWebhook(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -396,7 +1062,7 @@ class ApiRoutes {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
-			const data = await request.json();
+			const data = await request.json() as WebhookCreateRequest;
 			await this.env.threadClient!.addWebhook(id, data.url, data.api_key);
 			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
 			return Response.json(webhooks[webhooks.length - 1]);
@@ -405,6 +1071,32 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/webhooks/{webhookId}',
+		method: 'delete',
+		summary: 'Delete a webhook',
+		description: 'Deletes a webhook by its ID',
+		tags: ['Webhooks'],
+		parameters: [
+			{
+				name: 'webhookId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the webhook to delete'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Webhook deleted successfully'
+			},
+			'404': {
+				description: 'Webhook not found'
+			}
+		}
+	})
 	@routeTrace
 	async deleteWebhook(request: Request): Promise<Response> {
 		const { webhookId } = (request as any).params;
@@ -420,6 +1112,39 @@ class ApiRoutes {
 		}
 	}
 
+	@ApiOperation({
+		path: '/api/posts/{postId}',
+		method: 'get',
+		summary: 'Get post by ID',
+		description: 'Returns a post by its ID',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'postId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the post to retrieve'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Post found',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Post'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Post not found'
+			}
+		}
+	})
 	@routeTrace
 	async getPost(request: Request): Promise<Response> {
 		const { postId } = (request as any).params;
@@ -436,6 +1161,52 @@ class ApiRoutes {
 		return Response.json(post);
 	}
 
+	@ApiOperation({
+		path: '/api/posts/{postId}',
+		method: 'put',
+		summary: 'Update a post',
+		description: 'Updates a post by its ID',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'postId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the post to update'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							text: { type: 'string' }
+						},
+						required: ['text']
+					}
+				}
+			}
+		},
+		responses: {
+			'200': {
+				description: 'Post updated successfully',
+				content: {
+					'application/json': {
+						schema: {
+							$ref: '#/components/schemas/Post'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'Post not found'
+			}
+		}
+	})
 	@routeTrace
 	async updatePost(request: Request): Promise<Response> {
 		const { postId } = (request as any).params;
@@ -443,7 +1214,7 @@ class ApiRoutes {
 		if (isNaN(id)) {
 			return new Response('Invalid post ID', { status: 400 });
 		}
-		const data = await request.json();
+		const data = await request.json() as PostUpdateRequest;
 		const post = await this.env.threadClient!.updatePost(id, data);
 		if (!post) {
 			return new Response('Post not found', { status: 404 });
@@ -451,6 +1222,32 @@ class ApiRoutes {
 		return Response.json(post);
 	}
 
+	@ApiOperation({
+		path: '/api/posts/{postId}',
+		method: 'delete',
+		summary: 'Delete a post',
+		description: 'Deletes a post by its ID',
+		tags: ['Posts'],
+		parameters: [
+			{
+				name: 'postId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the post to delete'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'Post deleted successfully'
+			},
+			'404': {
+				description: 'Post not found'
+			}
+		}
+	})
 	@routeTrace
 	async deletePost(request: Request): Promise<Response> {
 		const { postId } = (request as any).params;
@@ -462,6 +1259,44 @@ class ApiRoutes {
 		return Response.json({ message: 'Post deleted' });
 	}
 
+	@ApiOperation({
+		path: '/api/thread/{threadId}/apikeys',
+		method: 'get',
+		summary: 'Get API keys for a thread',
+		description: 'Returns all API keys for a thread',
+		tags: ['API Keys'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to retrieve API keys from'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'List of API keys',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									key: { type: 'string' },
+									name: { type: 'string' },
+									permissions: { type: 'string' }
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async getApiKeys(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -473,6 +1308,41 @@ class ApiRoutes {
 		return Response.json(keys);
 	}
 
+	@ApiOperation({
+		path: '/api/thread/{threadId}/apikeys',
+		method: 'post',
+		summary: 'Add an API key',
+		description: 'Adds a new API key to a thread',
+		tags: ['API Keys'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer'
+				},
+				description: 'ID of the thread to add API key to'
+			}
+		],
+		responses: {
+			'201': {
+				description: 'API key added successfully',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								key: { type: 'string' },
+								name: { type: 'string' },
+								permissions: { type: 'string' }
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async addApiKey(request: Request): Promise<Response> {
 		const { threadId } = (request as any).params;
@@ -488,6 +1358,29 @@ class ApiRoutes {
 		return Response.json(key);
 	}
 
+	@ApiOperation({
+		path: '/api/apikeys/{apiKey}',
+		method: 'delete',
+		summary: 'Delete an API key',
+		description: 'Deletes an API key by its value',
+		tags: ['API Keys'],
+		parameters: [
+			{
+				name: 'apiKey',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'string'
+				},
+				description: 'API key to delete'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'API key deleted successfully'
+			}
+		}
+	})
 	@routeTrace
 	async deleteApiKey(request: Request): Promise<Response> {
 		const { apiKey } = (request as any).params;
@@ -495,30 +1388,162 @@ class ApiRoutes {
 		return Response.json({ message: 'API key deleted' });
 	}
 
+	@ApiOperation({
+		path: '/api/apikeys/{apiKey}',
+		method: 'put',
+		summary: 'Update an API key',
+		description: 'Updates permissions for an API key',
+		tags: ['API Keys'],
+		parameters: [
+			{
+				name: 'apiKey',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'string'
+				},
+				description: 'API key to update'
+			}
+		],
+		requestBody: {
+			content: {
+				'application/json': {
+					schema: {
+						type: 'object',
+						properties: {
+							permissions: { type: 'string' }
+						},
+						required: ['permissions']
+					}
+				}
+			}
+		},
+		responses: {
+			'200': {
+				description: 'API key updated successfully',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								key: { type: 'string' },
+								name: { type: 'string' },
+								permissions: { type: 'string' }
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 	@routeTrace
 	async updateApiKey(request: Request): Promise<Response> {
 		const { apiKey } = (request as any).params;
-		const data = await request.json();
+		const data = await request.json() as ApiKeyUpdateRequest;
 		const updated = await this.env.threadClient!.updateAPIKey(apiKey, data.permissions);
 		return Response.json(updated);
 	}
 
+	@ApiOperation({
+		path: '/api/upload',
+		method: 'post',
+		summary: 'Upload a file',
+		description: 'Uploads a file to the server',
+		tags: ['Files'],
+		requestBody: {
+			content: {
+				'multipart/form-data': {
+					schema: {
+						type: 'object',
+						properties: {
+							file: {
+								type: 'string',
+								format: 'binary'
+							}
+						},
+						required: ['file']
+					}
+				}
+			}
+		},
+		responses: {
+			'201': {
+				description: 'File uploaded successfully'
+			},
+			'501': {
+				description: 'File upload not implemented'
+			}
+		}
+	})
 	@routeTrace
 	async uploadFile(request: Request): Promise<Response> {
 		return new Response('File upload not implemented', { status: 501 });
+	}
+
+	@ApiOperation({
+		path: '/api/uploads/{fileId}',
+		method: 'get',
+		summary: 'Get a file',
+		description: 'Retrieves a file by its ID',
+		tags: ['Files'],
+		parameters: [
+			{
+				name: 'fileId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'string'
+				},
+				description: 'ID of the file to retrieve'
+			}
+		],
+		responses: {
+			'200': {
+				description: 'File content',
+				content: {
+					'application/octet-stream': {
+						schema: {
+							type: 'string',
+							format: 'binary'
+						}
+					}
+				}
+			},
+			'404': {
+				description: 'File not found'
+			}
+		}
+	})
+	@routeTrace
+	async getFile(request: Request): Promise<Response> {
+		const { fileId } = (request as any).params;
+		const _fileId = `uploads/${fileId}`;
+		const file = await this.env.threadClient!.getPostImage(_fileId);
+		if (!file) {
+			return new Response('File not found', { status: 404 });
+		}
+		const buffer = await file.arrayBuffer();
+		return new Response(buffer, {
+			headers: {
+				'Content-Type': file.httpMetadata?.contentType || 'application/octet-stream',
+				'Content-Length': file.size.toString(),
+				'ETag': file.httpEtag,
+				'Cache-Control': 'public, max-age=31536000',
+			},
+		});
 	}
 }
 
 // Main fetch handler
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		// Optionally wrap the DB with tracing
 		if (!(env.DB as any)._isTraced) {
-			env.DB = createTracingD1Database(env.DB);
+			const tracedDB = createTracingD1Database(env.DB);
+			env.DB = Object.assign(env.DB, tracedDB);
 			(env.DB as any)._isTraced = true;
 		}
 		if (!env.threadClient) {
-			env.threadClient = await D1ThreadClient.initialize(env.DB);
+			env.threadClient = await D1ThreadClient.initialize(env.DB, env.BUCKET1);
 		}
 		const router = buildRouter(env);
 		return router.fetch(request, env);
@@ -532,8 +1557,16 @@ function buildRouter(env: Env): RouterType {
 	const router = Router();
 	const apiRoutes = new ApiRoutes(env);
 
+	// Add OpenAPI spec endpoint (no auth required)
+	router.get('/api/docs/openapi.json', apiRoutes.getOpenApiSpec.bind(apiRoutes));
+
 	// Apply auth middleware to routes starting with /api/*
 	router.all('/api/*', async (request: Request, env: Env) => {
+		// avoid auth for uploads and docs
+		if (request.url.includes('/api/uploads/') || request.url.includes('/api/docs/')) {
+			return;
+		}
+
 		const authResponse = await apiRoutes.middleware.auth(request);
 		if (authResponse instanceof Response) {
 			return authResponse;
@@ -565,6 +1598,7 @@ function buildRouter(env: Env): RouterType {
 	router.post('/api/thread/:threadId/apikeys', apiRoutes.addApiKey.bind(apiRoutes));
 	router.delete('/api/apikeys/:apiKey', apiRoutes.deleteApiKey.bind(apiRoutes));
 	router.put('/api/apikeys/:apiKey', apiRoutes.updateApiKey.bind(apiRoutes));
+	router.get('/api/uploads/:fileId', apiRoutes.getFile.bind(apiRoutes));
 	router.post('/api/upload', apiRoutes.uploadFile.bind(apiRoutes));
 	router.all('*', () => new Response('Not Found', { status: 404 }));
 

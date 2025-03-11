@@ -26,24 +26,22 @@ export const clientMiddleware = async (
   const apiKeysValue = apiKeys?.split("=")[1] || "[]";
   const backendsJson: BackendConnection[] = JSON.parse(backendsValue);
   const apiKeysJson: Record<string, string>[] = JSON.parse(apiKeysValue);
-  const env = process.env.NODE_ENV;
-  if (backendsJson.length == 0) {
-    const defaultBackends = [];
-    backendsJson.push(...defaultBackends);
-  }
-  // const serversValue = backendsJson.map((backend) => backend.url);
   const storageClients: Record<string, ThreadClient> = {};
   for (const { url: server, token } of backendsJson) {
     if (server.startsWith("http")) {
       storageClients[server] = new RestThreadClient(server, token);
     } else if (server === "local") {
-      // TODO: refactor and condolidate all the clients into one.
-      // const { SqliteThreadClient } = await import("~/clients/sqlite");
-      // storageClients[server] = await SqliteThreadClient.initialize("./app.db");
+      const { SqliteThreadWrapperClient, FileStoreWrapperClient } = await import("~/clients/local");
+      const client = await SqliteThreadWrapperClient.initialize("./local.db") as unknown as D1Database;
+      const store = await FileStoreWrapperClient.initialize("./local_bucket")
+      storageClients["local"] = await D1ThreadClient.initialize(client, store);
     } else if (server === "d1") {
+      // TODO: refactor and consolidate all the clients into one.
       // @ts-ignore-next-line
       const db = loadContext.cloudflare.env.DB;
-      storageClients[server] = await D1ThreadClient.initialize(db);
+      // @ts-ignore-next-line
+      const bucket = loadContext.cloudflare.env.BUCKET;
+      storageClients[server] = await D1ThreadClient.initialize(db, bucket);
     } else {
       console.error("Unknown server:", server);
     }
