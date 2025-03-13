@@ -9,24 +9,21 @@ import type {
   APIKey,
   Webhook,
   Post,
+  LoaderData,
 } from "~/clients/types";
 import SettingsModal from "~/components/SettingsModal";
 import { RestThreadClient } from "~/clients/rest";
+import { getBuildHash } from "~/utils/build-hash.server";
+import ThreadPostList from "~/components/ThreadPostList";
+import Topbar from "~/components/Topbar";
+import Sidebar from "~/components/Sidebar";
+import APIKeyItem from "~/components/APIKeyItem";
+import CloseIcon from "~/components/CloseIcon";
 
-type LoaderData = {
-  threads: Promise<Thread[]>;
-  servers: string[];
-  backendMetadata: BackendConnection[];
-  activeThread: Thread | null;
-  activeThreadWebhooks: Promise<Webhook[]>;
-  activeThreadDocuments: Promise<TDocument[]>;
-  activeThreadApiKeys: Promise<APIKey[]>;
-  activeThreadPosts: Promise<Post[]>;
-  initialViewConfig: {
-    isShareUrl: boolean;
-    showSettings: boolean;
-    showMenu: boolean;
-  };
+import _action from "~/service/actions";
+
+export const action: ActionFunction = async ({ request, context }) => {
+  return _action({ request, context });
 };
 
 export const loader: LoaderFunction = async ({ request, context }) => {
@@ -38,6 +35,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const url = new URL(request.url);
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
+  const buildHash = getBuildHash();
 
   // Measure the clientMiddleware call.
   const middlewareStart = Date.now();
@@ -75,6 +73,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
       const headers = new Headers();
       headers.append("Set-Cookie", backendCookieOptions.join("; "));
       headers.append("Location", "/");
+      // headers.append("Cache-Control", "no-store, max-age=0, must-revalidate");
       console.log(`[TRACE] Added new backend: ${newBackend}`);
       return new Response(null, {
         headers,
@@ -158,6 +157,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
         showSettings: false,
         showMenu: false,
       },
+      buildHash,
     };
     return data;
   }
@@ -272,332 +272,12 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     activeThreadApiKeys,
     initialViewConfig,
     activeThreadPosts,
+    buildHash,
   };
 
   console.log(`[TRACE] Loader finished in ${Date.now() - overallStart}ms`);
 
   return data;
-};
-
-export const action: ActionFunction = async ({ request, context }) => {
-  // inplace update the clientMiddleware
-  await clientMiddleware(request, context);
-
-  const url = new URL(request.url);
-  const servers = Object.keys(context.storageClients);
-  const server = url.searchParams.get("s");
-  const threadId = url.searchParams.get("t");
-
-  // by default actions are allowed
-  let allowedActions = [
-    "createThread",
-    "createPost",
-    "updateSettings",
-    "createWebhook",
-    "removeWebhook",
-    "createDocument",
-    "deleteDocument",
-    "deleteThread",
-    "deletePost",
-    "shareUrlCreate",
-    "createApiKey",
-    "deleteApiKey",
-    "getApiKeys",
-  ];
-
-  if (server && !servers.includes(server)) {
-    const token = url.searchParams.get("token");
-    if (token) {
-      const adHocServer = new RestThreadClient(server);
-      adHocServer.setNarrowToken(token);
-      context.storageClients[server] = adHocServer;
-
-      // TODO: revisit limiting acls but move into server
-
-      // based on the ALC from the server, we can restrict the actions
-      // allowedActions = ["createPost", "deletePost", "shareUrlCreate"];
-    }
-  }
-
-  // get the headers from the request
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-
-  if (!intent) {
-    return new Response(null, { status: 400 });
-  }
-
-  // if the intent is not allowed, return a 400
-  if (!allowedActions.includes(intent)) {
-    console.log(`[TRACE] WRN Action not allowed: ${intent}`);
-    return new Response(null, { status: 400 });
-  }
-
-  if (intent === "createThread") {
-    const location = String(formData.get("location"));
-    const title = String(formData.get("title"));
-    const content = String(formData.get("content"));
-
-    if (!location || !title || !content) {
-      return new Response(null, { status: 400 });
-    }
-
-    // create the thread in the selected server
-    const _newThread = await context.storageClients[location].createThread({
-      title,
-      creator: "system",
-      initial_post: content,
-    });
-
-    const data: { success: boolean } = { success: true };
-    const response = new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    return response;
-  } else if (intent === "createPost") {
-    const content = String(formData.get("content"));
-    const url = new URL(request.url);
-    const threadId = String(url.searchParams.get("t"));
-    const server = String(url.searchParams.get("s"));
-    const selectedImage = formData.get("file");
-    const selectedImageFile = selectedImage as File;
-
-    const storageClient = context.storageClients[server];
-    if (!storageClient) {
-      return new Response(null, { status: 400 });
-    }
-
-    // create the post in the selected server
-    const _newPost = await storageClient.createPost(parseInt(threadId), {
-      text: content,
-      image: selectedImageFile,
-    });
-
-    const data: { success: boolean } = { success: true };
-    const response = new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    return response;
-  } else if (intent === "updateSettings") {
-    const jsonStringBackends = formData.getAll("backends");
-    const jsonStringApiKeys = formData.getAll("apiKeys");
-    if (!jsonStringBackends) {
-      return new Response(null, { status: 400 });
-    }
-    const apiKeys = JSON.parse(String(jsonStringApiKeys));
-    const backends = JSON.parse(String(jsonStringBackends));
-
-    // serialize and base64 encode the backends
-    // const serverData = btoa(JSON.stringify(backends));
-    const serverData = JSON.stringify(backends);
-    const apiKeyData = JSON.stringify(apiKeys);
-
-    // update the cookies so we can use the new servers
-    const backendCookieOptions = [
-      `backends=${serverData}`,
-      "Path=/",
-      "HttpOnly",
-      "Secure",
-      "SameSite=Strict",
-      "Max-Age=31536000",
-    ];
-    const apiKeyCookieOptions = [
-      `apiKeys=${apiKeyData}`,
-      "Path=/",
-      "HttpOnly",
-      "Secure",
-      "SameSite=Strict",
-      "Max-Age=31536000",
-    ];
-
-    const headers = new Headers();
-    headers.set("Content-Type", "application/json");
-
-    // Append each cookie as its own header.
-    headers.append("Set-Cookie", backendCookieOptions.join("; "));
-    headers.append("Set-Cookie", apiKeyCookieOptions.join("; "));
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), { headers });
-  } else if (intent === "createWebhook") {
-    const url = String(formData.get("url"));
-    const secret = String(formData.get("secret"));
-    const threadId = String(new URL(request.url).searchParams.get("t"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!url) {
-      return new Response(null, { status: 400 });
-    }
-
-    // addWebhook
-    const _newWebhook = await context.storageClients[server].addWebhook(
-      parseInt(threadId),
-      url,
-      secret
-    );
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent === "removeWebhook") {
-    const webhookId = String(formData.get("webhookId"));
-    const threadId = String(new URL(request.url).searchParams.get("t"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!webhookId) {
-      return new Response(null, { status: 400 });
-    }
-
-    await context.storageClients[server].removeWebhook(parseInt(webhookId));
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent === "createDocument") {
-    const title = String(formData.get("title"));
-    const content = String(formData.get("content"));
-    const threadId = String(new URL(request.url).searchParams.get("t"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!title || !content) {
-      return new Response(null, { status: 400 });
-    }
-
-    const _newDocument = await context.storageClients[server].createDocument(
-      parseInt(threadId),
-      { title, content, type: "text" }
-    );
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent === "deleteDocument") {
-    const docId = String(formData.get("docId"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!docId) {
-      return new Response(null, { status: 400 });
-    }
-
-    // deleteDocument
-    await context.storageClients[server].deleteDocument(docId);
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent === "deleteThread") {
-    const threadId = String(formData.get("threadId"));
-    const server = String(formData.get("server"));
-
-    if (!threadId || !server) {
-      return new Response(null, { status: 400 });
-    }
-
-    // deleteThread
-    await context.storageClients[server].deleteThread(parseInt(threadId));
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  }
-  if (intent === "deletePost") {
-    const postId = String(formData.get("postId"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!postId) {
-      return new Response(null, { status: 400 });
-    }
-
-    // deletePost
-    await context.storageClients[server].deletePost(parseInt(postId));
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent == "shareUrlCreate") {
-    // TODO
-    const preimage = String(formData.get("preimage"));
-    const threadId = String(new URL(request.url).searchParams.get("t"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!url) {
-      return new Response(null, { status: 400 });
-    }
-
-    // get current thread
-    const thread = await context.storageClients[server].getThread(
-      parseInt(threadId)
-    );
-
-    if (!thread) {
-      return new Response(null, { status: 400 });
-    }
-
-    const updatedThread = await context.storageClients[server].updateThread(
-      parseInt(threadId),
-      {
-        title: thread.title,
-        sharePubkey: preimage,
-      }
-    );
-
-    const data: { success: boolean } = { success: true };
-
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else if (intent === "createApiKey") {
-    const name = String(formData.get("name"));
-    const server = String(new URL(request.url).searchParams.get("s"));
-
-    if (!name) {
-      return new Response(null, { status: 400 });
-    }
-
-    const _newApiKey = await context.storageClients[server].createAPIKey(
-      Number(threadId),
-      name,
-      {
-        read: true,
-        write: true,
-        delete: true,
-      }
-    );
-
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  } else {
-    return new Response(null, { status: 400 });
-  }
 };
 
 const buf2hex = (buf: ArrayBuffer) =>
@@ -652,6 +332,7 @@ export default function Index() {
     activeThreadApiKeys,
     initialViewConfig,
     activeThreadPosts,
+    buildHash,
   } = useLoaderData<LoaderData>();
 
   // updapte showSettings to be true if there are no backends and were not shared
@@ -748,9 +429,8 @@ export default function Index() {
           onClose={() => setShowSettings(false)}
         />
       )}
-
       {/* Bottom bar */}
-      <div className="absolute bottom-0 w-full bg-surface-secondary border-t border-border shadow-lg p-2">
+      <div className="fixed bottom-0 w-full bg-surface-secondary border-t border-border shadow-lg p-2">
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-500">
             <button
@@ -775,160 +455,11 @@ export default function Index() {
           </div>
 
           <div className="text-sm text-gray-500 text-end opacity-50">
-            &copy; {new Date().getFullYear()} Stitch | Built with ❤️ by drbh |
-            Version 0.0.1
+            &copy; {new Date().getFullYear()} Stitch | Version {buildHash}
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function Topbar({
-  openSettings,
-  toggleOpenMenu,
-}: {
-  openSettings: () => void;
-  toggleOpenMenu?: (setIsOpen: (isOpen: boolean) => void) => void;
-}) {
-  return (
-    <header className="h-16 bg-surface-secondary border-b border-border shadow-lg flex justify-between items-center px-6">
-      <div className="flex items-center gap-2">
-        {toggleOpenMenu && (
-          <button
-            onClick={() => toggleOpenMenu((isOpen) => !isOpen)}
-            className="lg:hidden mr-2 p-1 rounded hover:bg-gray-100 transition-colors"
-            aria-label="Toggle menu"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
-          </button>
-        )}
-
-        <div className="flex items-center">
-          <svg
-            width="50"
-            height="50"
-            viewBox="0 0 200 200"
-            xmlns="http://www.w3.org/2000/svg"
-            className="mr-3"
-          >
-            <defs>
-              <linearGradient
-                id="threadGradient"
-                x1="0%"
-                y1="0%"
-                x2="100%"
-                y2="100%"
-              >
-                <stop offset="0%" stopColor="#3B82F6" />
-                <stop offset="100%" stopColor="#8B5CF6" />
-              </linearGradient>
-            </defs>
-            <g
-              fill="none"
-              stroke="url(#threadGradient)"
-              strokeWidth="16"
-              strokeLinecap="round"
-            >
-              {/* Main thread line */}
-              <path d="M50,30 C120,30 80,100 150,100" />
-              <circle
-                cx="50"
-                cy="30"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-
-              {/* essentially the above flipped */}
-              <path d="M50,150 C100,220 120,100  150,100" />
-              <circle
-                cx="50"
-                cy="150"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-              <path d="M55,65 C90,65 90,5 150,100" />
-              <circle
-                cx="55"
-                cy="65"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-              <path d="M45,110 C80,60 60,160 150,100" />
-              <circle
-                cx="45"
-                cy="110"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-
-              {/* center node */}
-              <circle
-                cx="150"
-                cy="100"
-                r="20"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-            </g>
-          </svg>
-
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold text-content-accent leading-none">
-              Stitch
-            </h1>
-            <span className="text-xs text-gray-500 opacity-50">
-              by stitch.sh
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => {
-            window.open(
-              "https://github.com/drbh/thread",
-              "_blank",
-              "noopener,noreferrer"
-            );
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-content-accent hover:bg-gray-100 rounded transition-colors"
-          aria-label="GitHub"
-        >
-          <span>Star us on GitHub</span>
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-        </button>
-      </div>
-    </header>
   );
 }
 
@@ -949,366 +480,6 @@ const MenuIcon = () => (
     <line x1="3" y1="18" x2="21" y2="18"></line>
   </svg>
 );
-
-const CloseIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <line x1="18" y1="6" x2="6" y2="18"></line>
-    <line x1="6" y1="6" x2="18" y2="18"></line>
-  </svg>
-);
-
-function Sidebar({
-  servers,
-  threads,
-  setActiveThread,
-  activeThread,
-  showMenu,
-  setShowMenu,
-}: {
-  servers: string[];
-  threads: Promise<Thread[]>;
-  setActiveThread: (thread: Thread | null) => void;
-  activeThread: Thread | null;
-  showMenu: boolean;
-  setShowMenu: (showMenu: boolean) => void;
-}) {
-  // const [isOpen, setIsOpen] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
-
-  // Handle window resize and set mobile state
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Close sidebar when a thread is selected on mobile
-  useEffect(() => {
-    if (isMobile && activeThread) {
-      setShowMenu(false);
-    }
-  }, [activeThread, isMobile]);
-
-  return (
-    <>
-      {/* Mobile Toggle Button */}
-      {isMobile && showMenu && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20"
-          onClick={() => setShowMenu(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`
-          bg-surface-primary
-          fixed lg:relative top-16
-          w-80 h-[calc(100vh-64px)]
-          border-r border-border
-          overflow-y-auto
-          transition-transform duration-300 ease-in-out
-          z-30 lg:z-auto
-          lg:top-0 left-0
-          ${showMenu ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        `}
-      >
-        <div className="p-6 space-y-6">
-          <ThreadComposer servers={servers} />
-          <ThreadList
-            threads={threads}
-            setActiveThread={setActiveThread}
-            activeThread={activeThread}
-          />
-        </div>
-      </aside>
-    </>
-  );
-}
-
-function ThreadComposer({ servers }: { servers: string[] }) {
-  const fetcher = useFetcher<{ success: boolean }>();
-
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [location, setLocation] = useState(
-    servers && servers.length > 0 ? servers[0] : ""
-  );
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    fetcher.submit(
-      {
-        intent: "createThread",
-        location,
-        title,
-        content,
-      },
-      { method: "post" }
-    );
-  };
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.success) {
-      // TODO: clear form fields
-    }
-  }, [fetcher.data]);
-
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-content-accent">New Thread</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* a dropdown select of the servers */}
-        <label className="block text-sm font-medium mb-1">
-          Select a server
-        </label>
-        <select
-          name="server"
-          className="w-full border border-border rounded p-2 bg-surface-tertiary"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-        >
-          {servers &&
-            servers.map((server) => (
-              <option key={server} value={server}>
-                {server}
-              </option>
-            ))}
-        </select>
-
-        <input
-          type="text"
-          placeholder="Thread Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
-        />
-        <textarea
-          placeholder="Thread Content"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          className="w-full px-4 py-2 h-24 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
-        />
-        <button
-          type="submit"
-          className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
-        >
-          Post Thread
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function ThreadList({
-  threads,
-  setActiveThread,
-  activeThread,
-}: {
-  threads: Promise<Thread[]>;
-  activeThread: Thread | null;
-  setActiveThread: (thread: Thread | null) => void;
-}) {
-  const fetcher = useFetcher<{ success: boolean }>();
-
-  const handleThreadDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const url = new URL(window.location.toString());
-    const threadId = url.searchParams.get("t");
-    const server = url.searchParams.get("s");
-
-    if (!threadId || !server) {
-      return;
-    }
-
-    fetcher.submit(
-      {
-        intent: "deleteThread",
-        threadId,
-        server,
-      },
-      { method: "delete" }
-    );
-  };
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.success) {
-      setActiveThread(null);
-    }
-  }, [fetcher.data]);
-
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-content-accent">Threads</h2>
-      <ul className="space-y-2">
-        <Suspense
-          fallback={
-            // a skeleton loader
-            <div className="space-y-4">
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-            </div>
-          }
-        >
-          <Await resolve={threads}>
-            {(threads) => (
-              <>
-                {threads.map((thread) => (
-                  <li
-                    key={thread.id + thread.location!}
-                    onClick={() => setActiveThread(thread)}
-                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                      activeThread?.id === thread.id &&
-                      activeThread?.location === thread.location
-                        ? "bg-interactive text-content-primary"
-                        : "bg-surface-tertiary hover:bg-interactive-hover"
-                    }`}
-                  >
-                    <button
-                      className="text-xs text-content-accent float-right mt-1"
-                      onClick={handleThreadDelete}
-                    >
-                      <CloseIcon />
-                    </button>
-                    <h3 className="font-medium truncate">{thread.title}</h3>
-                    <p className="text-sm text-content-secondary truncate">
-                      {thread.last_activity}
-                    </p>
-                    <div className="flex items-center justify-between">
-                      {thread.location && (
-                        <span className="text-xs text-content-secondary">
-                          {thread.location}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </>
-            )}
-          </Await>
-        </Suspense>
-      </ul>
-    </div>
-  );
-}
-
-function ThreadSettingView({
-  activeThreadWebhooks,
-}: {
-  activeThreadWebhooks: Promise<Webhook[]>;
-}) {
-  const fetcher = useFetcher<{ success: boolean }>();
-
-  const handleWebhookSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const url = form[0].value;
-    const secret = form[1].value || "";
-    if (!url) return;
-
-    fetcher.submit(
-      {
-        intent: "createWebhook",
-        url,
-        secret,
-      },
-      { method: "post" }
-    );
-  };
-
-  const handleWebhookRemove = (e: React.MouseEvent, webhookId: number) => {
-    e.preventDefault();
-    fetcher.submit(
-      {
-        intent: "removeWebhook",
-        webhookId,
-      },
-      { method: "delete" }
-    );
-  };
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-content-accent">Settings</h2>
-
-      <div className="bg-surface-secondary rounded-lg shadow-lg p-6">
-        <h3 className="text-lg font-semibold text-content-accent mb-2">
-          Add Webhook
-        </h3>
-        <form className="space-y-4" onSubmit={handleWebhookSubmit}>
-          <input
-            type="text"
-            placeholder="Webhook URL"
-            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
-          />
-          <input
-            type="text"
-            placeholder="Webhook Secret"
-            required={false}
-            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
-          />
-          <button
-            type="submit"
-            className="w-full px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
-          >
-            Add Webhook
-          </button>
-        </form>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-semibold text-content-accent mb-2">
-          Webhooks
-        </h3>
-        <Suspense
-          fallback={
-            // a skeleton loader
-            <div className="space-y-4">
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-            </div>
-          }
-        >
-          <Await resolve={activeThreadWebhooks}>
-            {(webhooks) => (
-              <ul className="space-y-4">
-                {webhooks &&
-                  webhooks.map((webhook, idx) => (
-                    <li
-                      key={webhook.id}
-                      className="bg-surface-tertiary p-4 rounded-lg"
-                    >
-                      <button
-                        className="text-xs text-content-accent float-right mt-1"
-                        onClick={(e) => handleWebhookRemove(e, webhook.id)}
-                      >
-                        <CloseIcon />
-                      </button>
-                      <div>{webhook.url}</div>
-                      <div>{webhook.secret}</div>
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </Await>
-        </Suspense>
-      </div>
-    </div>
-  );
-}
 
 function MainContent({
   activeThread,
@@ -1335,6 +506,7 @@ function MainContent({
   const [currentTab, setCurrentTab] = useState(Tab.Posts);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const fetcher = useFetcher<{ success: boolean }>();
+  const ref = React.createRef();
 
   const handleTabChange = (tab: Tab) => {
     setCurrentTab(tab);
@@ -1469,31 +641,230 @@ function MainContent({
     );
   };
 
+  const [isOpen, setIsOpen] = useState(false);
+  const [stateMirror, setStateMirror] = useState(false);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    console.log("useEffect");
+    if (ref.current && ref.current.states) {
+      console.log("setting state mirror");
+      setStateMirror(ref.current.states);
+    }
+
+    if (!isOpen) return;
+
+    const handleClickOutside = (e) => {
+      if (!e.target.closest(".thread-actions-menu")) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, ref.current]);
+
   return (
     <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto bg-surface-primary p-6">
       {activeThread ? (
         <div className="max-w-3xl mx-auto space-y-6">
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-content-accent">
-              {activeThread.title}
-            </h2>
-            <div className="">
-              <h3 className="text-lg font-semibold text-content-accent mb-2">
-                Share URL
-              </h3>
-              <div className="flex items-center space-x-4">
-                <div className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent min-h-10 truncate">
-                  {activeThread && activeThread.share_pubkey && url && url}
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-content-accent">
+                {activeThread.title}
+              </h2>
+              <div className="flex items-center space-x-0">
+                <div className="px-3 py-2 border border-border rounded-lg text-xs text-content-accent">
+                  {0 ? "Public Link Created" : "Private"}
                 </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(url)}
-                  className="px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors"
+
+                <div
+                  className="relative thread-actions-menu"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  Copy
-                </button>
+                  <button
+                    className="p-1 text-gray-400 hover:text-white rounded-full transition-colors"
+                    onClick={() => setIsOpen((isOpen) => !isOpen)}
+                    title="Thread actions"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                      />
+                    </svg>
+                  </button>
+
+                  {isOpen && (
+                    <div className="absolute right-0 mt-1 bg-surface-secondary border border-border rounded-md shadow-lg py-1 w-40 z-10">
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          // onPin(thread);
+                          setIsOpen(false);
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5 mr-2"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+                          />
+                        </svg>
+                        {/* {thread.pinned ? "Unpin thread" : "Pin thread"} */}
+                      </button>
+
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          // onHide(thread);
+                          setIsOpen(false);
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5 mr-2"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
+                        </svg>
+                        Hide from list
+                      </button>
+
+                      <div className="border-t border-border my-1"></div>
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          const currStatus = ref.current.toggleShowJson();
+                          setStateMirror((prev) => ({
+                            ...prev,
+                            showJson: currStatus,
+                          }));
+                        }}
+                      >
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <circle
+                            fill={stateMirror.showJson ? "#000" : "#fff"}
+                            cx="12"
+                            cy="12"
+                            r="10"
+                          ></circle>
+                        </svg>
+                        Raw JSON
+                      </button>
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          const currStatus = ref.current.toggleDevNote();
+                          setStateMirror((prev) => ({
+                            ...prev,
+                            showDevNote: currStatus,
+                          }));
+                        }}
+                      >
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <circle
+                            fill={stateMirror.showDevNote ? "#000" : "#fff"}
+                            cx="12"
+                            cy="12"
+                            r="10"
+                          ></circle>
+                        </svg>
+                        Endpoint Info
+                      </button>
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          const currStatus = ref.current.toggleActivityChart();
+                          setStateMirror((prev) => ({
+                            ...prev,
+                            showActivityChart: currStatus,
+                          }));
+                        }}
+                      >
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <circle
+                            fill={
+                              stateMirror.showActivityChart ? "#000" : "#fff"
+                            }
+                            cx="12"
+                            cy="12"
+                            r="10"
+                          ></circle>
+                        </svg>
+                        Activity Chart
+                      </button>
+
+                      <div className="border-t border-border my-1"></div>
+                      <button
+                        className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Are you sure you want to delete this thread?"
+                            )
+                          ) {
+                            // onDelete(thread);
+                          }
+                          setIsOpen(false);
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5 mr-2"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                        Delete thread
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/*  */}
               </div>
             </div>
-
             <p className="text-content-secondary">
               {activeThread.last_activity}
             </p>
@@ -1504,8 +875,8 @@ function MainContent({
               onClick={() => handleTabChange(Tab.Posts)}
               className={`${
                 currentTab === "posts"
-                  ? "bg-interactive text-content-primary"
-                  : "bg-surface-tertiary text-content-accent"
+                  ? "bg-surface-secondary border border-border text-content-primary"
+                  : "bg-surface-primary border border-border text-gray-200 hover:bg-surface-tertiary"
               } px-6 py-2 rounded-lg font-medium`}
             >
               Posts
@@ -1517,8 +888,8 @@ function MainContent({
               onClick={() => handleTabChange(Tab.Documents)}
               className={`${
                 currentTab === "documents"
-                  ? "bg-interactive text-content-primary"
-                  : "bg-surface-tertiary text-content-accent"
+                  ? "bg-surface-secondary border border-border text-content-primary"
+                  : "bg-surface-primary border border-border text-gray-200 hover:bg-surface-tertiary"
               } px-6 py-2 rounded-lg font-medium`}
             >
               Documents
@@ -1534,8 +905,8 @@ function MainContent({
                   onClick={() => handleTabChange(Tab.Webhooks)}
                   className={`${
                     currentTab === "webhooks"
-                      ? "bg-interactive text-content-primary"
-                      : "bg-surface-tertiary text-content-accent"
+                      ? "bg-surface-secondary border border-border text-content-primary"
+                      : "bg-surface-primary border border-border text-gray-200 hover:bg-surface-tertiary"
                   } px-6 py-2 rounded-lg font-medium`}
                 >
                   Webhooks
@@ -1548,8 +919,8 @@ function MainContent({
                   onClick={() => handleTabChange(Tab.Access)}
                   className={`${
                     currentTab === "access"
-                      ? "bg-interactive text-content-primary"
-                      : "bg-surface-tertiary text-content-accent"
+                      ? "bg-surface-secondary border border-border text-content-primary"
+                      : "bg-surface-primary border border-border text-gray-200 hover:bg-surface-tertiary"
                   } px-6 py-2 rounded-lg font-medium`}
                 >
                   Access
@@ -1559,7 +930,7 @@ function MainContent({
                 </button>
                 <button
                   onClick={handleShareUrlCreate}
-                  className="max-h-10 overflow-truncate truncate bg-surface-tertiary text-content-accent px-6 py-2 rounded-lg font-medium"
+                  className="bg-surface-primary border border-border max-h-10 overflow-truncate truncate text-content-accent px-6 py-2 rounded-lg font-medium"
                 >
                   Share URL
                 </button>
@@ -1569,11 +940,12 @@ function MainContent({
 
           {currentTab === "posts" && (
             <div>
-              {!isShareUrl && <PostComposer />}
-              <Thread
+              {/* {false && <ThreadShareURL shareUrl={url} /> } */}
+              <ThreadPostList
                 thread={activeThread}
                 isShareUrl={isShareUrl}
                 activeThreadPosts={activeThreadPosts}
+                ref={ref}
               />
             </div>
           )}
@@ -1724,232 +1096,6 @@ function MainContent({
         </div>
       )}
     </main>
-  );
-}
-
-function Thread({
-  thread,
-  activeThreadPosts,
-  isShareUrl,
-}: {
-  thread: Thread;
-  activeThreadPosts: Promise<Post[]>;
-  isShareUrl: boolean;
-}) {
-  const fetcher = useFetcher<{ success: boolean }>();
-
-  const handlePostDelete = (e: React.MouseEvent, postId: number) => {
-    e.preventDefault();
-    fetcher.submit(
-      {
-        intent: "deletePost",
-        postId,
-      },
-      { method: "delete" }
-    );
-  };
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.success) {
-      // TODO: clear form fields
-    }
-  }, [fetcher.data]);
-
-  return (
-    <div className="space-y-6 mt-4">
-      <h2 className="text-lg font-semibold text-content-accent">Posts</h2>
-      <div className="space-y-4">
-        <ul className="space-y-4">
-          <Suspense
-            fallback={
-              // a skeleton loader
-              <div className="space-y-4">
-                <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              </div>
-            }
-          >
-            <Await resolve={activeThreadPosts}>
-              {(posts) => (
-                <ul className="space-y-4">
-                  {posts.map((post) => (
-                    <li
-                      key={post.id}
-                      className="bg-surface-tertiary p-4 rounded-lg"
-                    >
-                      {!isShareUrl && (
-                        <button
-                          className="text-xs text-content-accent float-right mt-1"
-                          onClick={(e) => handlePostDelete(e, post.id)}
-                        >
-                          <CloseIcon />
-                        </button>
-                      )}
-                      <div>{post.author}</div>
-                      <div>{post.time}</div>
-                      {post.image && (
-                        <img
-                          src={`${
-                            thread.location === "local"
-                              ? "./local"
-                              : thread.location
-                          }/api/${post.image}`}
-                          alt="Post Image"
-                          className="w-full rounded-lg mb-4 max-w-24"
-                        />
-                      )}
-
-                      <div>{post.text}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Await>
-          </Suspense>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function PostComposer() {
-  const fetcher = useFetcher<{ success: boolean }>();
-  const [postContent, setPostContent] = useState("");
-
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-
-  // Handle image selection
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    if (file) {
-      setSelectedImage(file);
-
-      // Create a preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleRemoveImage = () => {
-    setImagePreview(null);
-  };
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!postContent.trim()) return;
-    const formData = new FormData();
-    if (selectedImage) {
-      formData.append("file", selectedImage);
-    }
-    formData.append("intent", "createPost");
-    formData.append("content", postContent);
-    fetcher.submit(formData, {
-      method: "post",
-      encType: "multipart/form-data",
-    });
-  };
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.data.success) {
-      setPostContent("");
-    }
-  }, [fetcher.data]);
-
-  return (
-    <div className="space-y-2">
-      <h2 className="text-lg font-semibold text-content-accent">New Post</h2>
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <textarea
-          placeholder="Write your reply..."
-          value={postContent}
-          onChange={(e) => setPostContent(e.target.value)}
-          className="w-full px-4 py-2 h-32 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
-        />
-
-        {/* Image preview */}
-        {imagePreview && (
-          <div className="relative w-full">
-            <img
-              src={imagePreview}
-              alt="Preview"
-              className="max-h-60 rounded-lg object-contain bg-surface-tertiary p-2"
-            />
-            <button
-              type="button"
-              onClick={handleRemoveImage}
-              className="absolute top-2 right-2 bg-surface-secondary p-1 rounded-full"
-              aria-label="Remove image"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          {/* Image upload button */}
-          <div className="relative">
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              onChange={handleImageSelect}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              aria-label="Upload image"
-            />
-            <button
-              type="button"
-              className="px-4 py-2 bg-surface-tertiary hover:bg-surface-tertiary-hover border border-border rounded-lg transition-colors flex items-center gap-2"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
-              <span>Add Image</span>
-            </button>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isUploading}
-            className={`flex-1 px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-content-primary font-medium rounded-lg transition-colors ${
-              isUploading ? "opacity-70 cursor-not-allowed" : ""
-            }`}
-          >
-            {isUploading ? "Uploading..." : "Post Reply"}
-          </button>
-        </div>
-        {/*  */}
-      </form>
-    </div>
   );
 }
 

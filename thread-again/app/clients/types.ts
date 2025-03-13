@@ -187,3 +187,23 @@ export interface APIKey {
   created_at?: string;
   updated_at?: string;
 }
+
+/**
+ * App level
+ */
+export type LoaderData = {
+  threads: Promise<Thread[]>;
+  servers: string[];
+  backendMetadata: BackendConnection[];
+  activeThread: Thread | null;
+  activeThreadWebhooks: Promise<Webhook[]>;
+  activeThreadDocuments: Promise<Document[]>;
+  activeThreadApiKeys: Promise<APIKey[]>;
+  activeThreadPosts: Promise<Post[]>;
+  initialViewConfig: {
+    isShareUrl: boolean;
+    showSettings: boolean;
+    showMenu: boolean;
+  };
+  buildHash: string;
+};

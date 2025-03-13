@@ -47,6 +47,29 @@ export default {
         hover: "#4A4A4A",
         active: "#505050",
       },
+      // TODO: remove these colors. only used for debugging
+      blue: {
+        900: "#0c4a6e",
+        800: "#075985",
+        700: "#0369a1",
+        600: "#0284c7",
+      },
+      green: {
+        900: "#065f46",
+        800: "#047857",
+        700: "#059669",
+        600: "#10b981",
+      },
+      purple: {
+        900: "#4c1d95",
+        800: "#5b21b6",
+        700: "#6d28d9",
+        600: "#7c3aed",
+      },
+      zinc: {
+        900: "#18181b",
+        700: "#FF0000",
+      },
       // Docs
       quote_alert: {
         DEFAULT: "#FFD6A5",

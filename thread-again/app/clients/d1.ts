@@ -288,10 +288,11 @@ export class D1ThreadClient extends ThreadClient {
       throw new Error("Thread creation failed");
     }
 
+    const image = data.image ? data.image : undefined;
     // Create the initial post.
     await this.createPost(
       threadId,
-      { text: data.initial_post, image: data.image },
+      { text: data.initial_post, image },
       data.creator
     );
 
@@ -378,21 +379,20 @@ export class D1ThreadClient extends ThreadClient {
     }
 
     const image = data.image;
-    if (!image) {
-      throw new Error("Image not found");
+    let objectName: string | null = null;
+    if (image) {
+      const imageBuffer = await image.arrayBuffer();
+      const imageArray = new Uint8Array(imageBuffer);
+      objectName = `uploads/${threadId}-${Date.now()}-${image.name}`;
+      const object = await this.bucket.put(objectName, imageArray);
     }
-
-    const imageBuffer = await image.arrayBuffer();
-    const imageArray = new Uint8Array(imageBuffer);
-    const objectName = `uploads/${threadId}-${Date.now()}-${image.name}`;
-    const object = await this.bucket.put(objectName, imageArray);
 
     const stmt = this.d1.prepare(`
       INSERT INTO posts (thread_id, author, text, image, is_initial_post)
       VALUES (?, ?, ?, ?, ?)
     `);
     const result = await stmt
-      .bind(threadId, author, data.text, objectName || null, 0)
+      .bind(threadId, author, data.text, objectName, 0)
       .run();
 
     // Update the thread's reply count and last activity.
@@ -429,7 +429,7 @@ export class D1ThreadClient extends ThreadClient {
       return null;
     }
 
-    return object
+    return object;
   }
 
   /**
