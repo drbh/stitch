@@ -527,15 +527,21 @@ function ThreadList({
                   });
 
                   // Apply search filter
-                  if (searchTerm) {
-                    filteredThreads = filteredThreads.filter((thread) =>
-                      threadMatchesSearch(thread, searchTerm)
-                    );
-                    // Update search result count
-                    setSearchResultCount(filteredThreads.length);
-                  } else {
-                    setSearchResultCount(null);
-                  }
+                  const searchedThreads = searchTerm
+                    ? filteredThreads.filter((thread) => threadMatchesSearch(thread, searchTerm))
+                    : filteredThreads;
+
+                  // Update search count outside of render
+                  React.useEffect(() => {
+                    if (searchTerm) {
+                      setSearchResultCount(searchedThreads.length);
+                    } else {
+                      setSearchResultCount(null);
+                    }
+                  }, [searchTerm, searchedThreads.length]);
+
+                  // Continue with filtered threads
+                  filteredThreads = searchedThreads;
 
                   // Apply additional filters
                   if (filterBy === "pinned") {

@@ -232,12 +232,20 @@ export class RestThreadClient extends ThreadClient {
       title: string;
       content: string;
       type: string;
+      file?: File;
     }
   ): Promise<Document> {
+    const formData = new FormData();
+    formData.append("threadId", String(threadId));
+    formData.append("title", data.title);
+    formData.append("content", data.content);
+    if (data.file) {
+      formData.append("type", data.type);
+      formData.append("file", data.file);
+    }
     const response = await this.makeRequest("/api/documents", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...data, thread_id: threadId }),
+      body: formData,
     });
     if (!response.ok) {
       throw new Error(await response.text());

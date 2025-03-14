@@ -10,16 +10,41 @@ export const loader: LoaderFunction = async ({ request, params, context }) => {
 
   // @ts-ignore
   const localBucket = storageClients["local"].bucket;
-  const lastSegment = url.pathname.split("/").pop();
-  const file = await localBucket.get(`uploads/${lastSegment}`);
-  const extSplit = url.pathname.split(".");
-  if (extSplit.length < 2) {
-    throw new Error("Invalid file name");
+  const lastSegment = url.pathname.split("/").pop() || "";
+
+  // Define the file path for bucket - support both formats
+  const filePath = lastSegment.includes('uploads/')
+    ? lastSegment
+    : `uploads/${lastSegment}`;
+
+  const file = await localBucket.get(filePath);
+
+  if (!file) {
+    return new Response("File not found", { status: 404 });
   }
-  const ext = extSplit[1];
+
+  // Determine the content type based on the file extension
+  const fileExt = lastSegment.split('.').pop()?.toLowerCase() || "";
+
+  // Map common extensions to MIME types
+  const mimeTypes: Record<string, string> = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+    'pdf': 'application/pdf',
+    'mp4': 'video/mp4',
+    'mp3': 'audio/mpeg'
+  };
+
+  const contentType = mimeTypes[fileExt] || 'application/octet-stream';
+
   return new Response(file, {
     headers: {
-      "Content-Type": `image/${ext}`,
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000"
     },
   });
 };

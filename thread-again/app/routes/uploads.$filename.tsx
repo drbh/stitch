@@ -11,16 +11,15 @@ import mime from "mime-types";
  */
 export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
-    // Get the filename from the URL
-    const url = new URL(request.url);
-    const filename = url.pathname.split("/uploads/")[1];
+    // Get the filename from the URL and params
+    const filename = params.filename || "";
 
     if (!filename) {
       return new Response("File not found", { status: 404 });
     }
 
     // Construct the full path to the file
-    const uploadsDir = join(process.cwd(), "uploads");
+    const uploadsDir = join(process.cwd(), "local_bucket", "uploads");
     const filePath = join(uploadsDir, filename);
 
     // Check if file exists and get its stats

@@ -207,18 +207,61 @@ const _action = async ({ request, context }) => {
     });
   } else if (intent === "createDocument") {
     const title = String(formData.get("title"));
-    const content = String(formData.get("content"));
     const threadId = String(new URL(request.url).searchParams.get("t"));
     const server = String(new URL(request.url).searchParams.get("s"));
+    const fileType = formData.get("type") || "text";
 
-    if (!title || !content) {
-      return new Response(null, { status: 400 });
+    // Check if file upload or text content
+    const file = formData.get("file");
+    let content = "";
+
+    if (!title) {
+      return new Response(JSON.stringify({ success: false, message: "Title is required" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 400
+      });
     }
 
-    const _newDocument = await context.storageClients[server].createDocument(
-      parseInt(threadId),
-      { title, content, type: "text" }
-    );
+    if (file instanceof File) {
+      // For multimedia files (images, audio, video), we'll use the bucket storage
+
+      // TODO: revisit how to handled text based (editable files?)
+      if (file.type.startsWith('text/')) {
+        // For text files, read their content
+        const buffer = await file.arrayBuffer();
+        const decoder = new TextDecoder();
+        content = decoder.decode(new Uint8Array(buffer));
+      } else {
+        // For non-text files, set placeholder content
+        // The actual file will be stored in the bucket by the storage client
+        content = null
+      }
+
+      const _newDocument = await context.storageClients[server].createDocument(
+        parseInt(threadId),
+        {
+          title,
+          content,
+          type: String(file.type),
+          file // Pass the actual file to be stored in bucket
+        }
+      );
+    } else {
+      // Handle text content
+      content = String(formData.get("content") || "");
+
+      if (!content) {
+        return new Response(JSON.stringify({ success: false, message: "Content is required" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 400
+        });
+      }
+
+      const _newDocument = await context.storageClients[server].createDocument(
+        parseInt(threadId),
+        { title, content, type: String(fileType) }
+      );
+    }
 
     const data: { success: boolean } = { success: true };
     return new Response(JSON.stringify(data), {

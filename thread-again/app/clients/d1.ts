@@ -433,6 +433,19 @@ export class D1ThreadClient extends ThreadClient {
   }
 
   /**
+   * Get the file contents for a document file (from the bucket).
+   */
+  @traceMethod
+  async getDocumentFile(fileId: string): Promise<R2ObjectBody | null> {
+    const object: R2ObjectBody = await this.bucket.get(fileId);
+    if (!object) {
+      return null;
+    }
+
+    return object;
+  }
+
+  /**
    * Retrieve all posts for a given thread (ordered by time).
    */
   @traceMethod
@@ -629,6 +642,7 @@ export class D1ThreadClient extends ThreadClient {
       title: string;
       content: string;
       type: string;
+      file?: File;
     }
   ): Promise<Document> {
     // Verify the thread exists
@@ -638,12 +652,43 @@ export class D1ThreadClient extends ThreadClient {
       throw new Error("Thread not found");
     }
 
+    // For multimedia files, store them in the bucket instead of directly in the database
+    let content = data.content;
+    let objectName = null;
+
+    // Check if this is a multimedia file that needs special handling
+    const isMultimedia = data.type.startsWith('audio/') ||
+                          data.type.startsWith('video/') ||
+                          data.type.startsWith('image/') ||
+                          (data.content.length > 100000 && data.file); // Large content
+
+
+    if (isMultimedia && data.file) {
+      // Store the file in the bucket
+      const fileBuffer = await data.file.arrayBuffer();
+      const fileArray = new Uint8Array(fileBuffer);
+
+      let fname = data.file.name;
+
+      // update the fname to remove spaces and any special characters
+      const fnameParts = fname.split('.');
+      const ext = fnameParts[fnameParts.length - 1];
+      const fnameNoExt = fnameParts.slice(0, -1).join('');
+      const fnameNoSpecialChars = fnameNoExt.replace(/[^a-zA-Z0-9]/g, '');
+      fname = `${fnameNoSpecialChars}.${ext}`;
+
+      objectName = `uploads/${threadId}-${Date.now()}-${fname}`;
+      await this.bucket.put(objectName, fileArray);
+      // Store only the reference to the file in the content field
+      content = objectName;
+    }
+
     const stmt = this.d1.prepare(`
       INSERT INTO documents (thread_id, title, content, type)
       VALUES (?, ?, ?, ?)
     `);
     const result = await stmt
-      .bind(threadId, data.title, data.content, data.type)
+      .bind(threadId, data.title, content, data.type)
       .run();
 
     if (!result.success) {

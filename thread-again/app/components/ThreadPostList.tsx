@@ -155,25 +155,25 @@ const ThreadPost = ({
   return (
     <li className="bg-surface-primary p-4 rounded-md border border-border">
       <div className="flex justify-between items-start mb-3">
-        <div className="flex items-center">
+        <div className="flex items-center flex-grow min-w-0 mr-2">
           <Tooltip content={`User: ${post.author}`}>
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium mr-3"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium mr-3 flex-shrink-0"
               style={{ backgroundColor: avatarColor }}
             >
               {initials}
             </div>
           </Tooltip>
 
-          <div>
-            <div className="text-white font-medium">{post.author}</div>
+          <div className="min-w-0 flex-grow overflow-hidden">
+            <div className="text-white font-medium truncate">{post.author}</div>
             <Tooltip content={fullDate}>
               <div className="text-gray-400 text-xs">{relativeTime}</div>
             </Tooltip>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           {!isShareUrl && (
             <button
               className="text-gray-400 hover:text-gray-200 transition-colors"
@@ -203,14 +203,23 @@ const ThreadPost = ({
           <div className="mt-2 mb-3">
             <img
               src={`${
-                thread.location === "local" ? "./local" : thread.location
-              }/api/${post.image}`}
+                thread.location === "local"
+                  ? post.image.startsWith("uploads/")
+                    ? `./local/api/${post.image}`
+                    : `./local/api/uploads/${post.image.split("/").pop()}`
+                  : post.image.startsWith("uploads/")
+                  ? `${thread.location}/api/${post.image}`
+                  : `${thread.location}/api/uploads/${post.image
+                      .split("/")
+                      .pop()}`
+              }`}
               alt="Post attachment"
               className="rounded-md max-h-60 object-cover"
-              onError={(e) => {
-                e.currentTarget.src =
-                  "https://via.placeholder.com/300x200?text=Image+Not+Found";
-              }}
+              // TODO: add better error handling
+              // onError={(e) => {
+              //   e.currentTarget.src =
+              //     "https://via.placeholder.com/300x200?text=Image+Not+Found";
+              // }}
             />
           </div>
         )}
@@ -287,7 +296,7 @@ const ThreadPostList = forwardRef(
       isShareUrl,
     }: {
       thread: Thread;
-      activeThreadPosts: Post[];
+      activeThreadPosts: Promise<Post[]>;
       isShareUrl: boolean;
     },
     ref
@@ -312,95 +321,108 @@ const ThreadPostList = forwardRef(
 
     useImperativeHandle(
       ref,
-      () => {
-        console.log("ThreadPostList ref created");
-        return {
-          toggleDevNote: () => {
-            let past = showDevNote;
-            setShowDevNote((prev) => !prev);
-            return !past;
-          },
-          toggleActivityChart: () => {
-            let past = showActivityChart;
-            setShowActivityChart((prev) => !prev);
-            return !past;
-          },
-          toggleShowJson: () => {
-            let past = showJson;
-            setShowJson((prev) => !prev);
-            return !past;
-          },
-          states: {
-            showJson,
-            showDevNote,
-            showActivityChart,
-          },
-        };
-      },
+      () => ({
+        toggleDevNote: () => {
+          const newValue = !showDevNote;
+          setShowDevNote(newValue);
+          return newValue;
+        },
+        toggleActivityChart: () => {
+          const newValue = !showActivityChart;
+          setShowActivityChart(newValue);
+          return newValue;
+        },
+        toggleShowJson: () => {
+          const newValue = !showJson;
+          setShowJson(newValue);
+          return newValue;
+        },
+        states: {
+          showJson,
+          showDevNote,
+          showActivityChart,
+        },
+      }),
       [showJson, showDevNote, showActivityChart]
     );
 
-    return (
-      <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="text-sm text-gray-400">
-              <Suspense fallback={<span>Loading...</span>}>
-                <Await resolve={activeThreadPosts}>
-                  {(posts) => (
+    // Memoize components to avoid recreation on each render
+    const postCountDisplay = React.useMemo(() => (
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-gray-400">
+            <Suspense fallback={<span>Loading...</span>}>
+              <Await resolve={activeThreadPosts}>
+                {(posts) => {
+                  // Use a callback to avoid state updates during render
+                  return (
                     <span>
                       {posts.length} {posts.length === 1 ? "post" : "posts"}
                     </span>
-                  )}
-                </Await>
-              </Suspense>
-            </div>
+                  );
+                }}
+              </Await>
+            </Suspense>
           </div>
         </div>
+      </div>
+    ), [activeThreadPosts]);
 
-        {showDevNote && <DeveloperCard thread={thread} />}
+    // Memoize developer card to prevent recreation
+    const devNoteDisplay = React.useMemo(() =>
+      showDevNote ? <DeveloperCard thread={thread} /> : null
+    , [showDevNote, thread]);
 
-        {/* Add Activity Chart (conditionally rendered) */}
-        {showActivityChart && (
-          <Suspense
-            fallback={
-              <div className="bg-zinc-900 rounded-md border border-border p-4 mb-6 animate-pulse">
-                <div className="h-5 bg-zinc-800 rounded w-1/3 mb-4"></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="bg-zinc-800 rounded-md p-3 border border-border"
-                    >
-                      <div className="h-2 bg-surface-tertiary rounded w-1/2 mb-2"></div>
-                      <div className="h-5 bg-surface-tertiary rounded w-1/3"></div>
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-1 mb-4">
-                  {Array(35)
-                    .fill(0)
-                    .map((_, i) => (
+    return (
+      <div className="space-y-6 mt-4">
+        {postCountDisplay}
+        {devNoteDisplay}
+
+        {/* Add Activity Chart (conditionally rendered and memoized) */}
+        {React.useMemo(() => {
+          if (!showActivityChart) return null;
+
+          return (
+            <Suspense
+              fallback={
+                <div className="bg-zinc-900 rounded-md border border-border p-4 mb-6 animate-pulse">
+                  <div className="h-5 bg-zinc-800 rounded w-1/3 mb-4"></div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    {[1, 2, 3, 4].map((i) => (
                       <div
                         key={i}
-                        className="w-3 h-3 bg-zinc-800 rounded-sm"
-                      ></div>
+                        className="bg-zinc-800 rounded-md p-3 border border-border"
+                      >
+                        <div className="h-2 bg-surface-tertiary rounded w-1/2 mb-2"></div>
+                        <div className="h-5 bg-surface-tertiary rounded w-1/3"></div>
+                      </div>
                     ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 mb-4">
+                    {Array(35)
+                      .fill(0)
+                      .map((_, i) => (
+                        <div
+                          key={i}
+                          className="w-3 h-3 bg-zinc-800 rounded-sm"
+                        ></div>
+                      ))}
+                  </div>
                 </div>
-              </div>
-            }
-          >
-            <Await resolve={activeThreadPosts}>
-              {(posts) => (
-                <ActivityChart
-                  posts={posts}
-                  weeksToShow={26}
-                  colorTheme="blue"
-                />
-              )}
-            </Await>
-          </Suspense>
-        )}
+              }
+            >
+              <Await resolve={activeThreadPosts}>
+                {(posts) => (
+                  <ActivityChart
+                    posts={posts}
+                    weeksToShow={26}
+                    colorTheme="blue"
+                  />
+                )}
+              </Await>
+            </Suspense>
+          );
+        }, [showActivityChart, activeThreadPosts])}
 
         <PostComposer
           threadId={thread.id}
@@ -409,49 +431,57 @@ const ThreadPostList = forwardRef(
           }}
         />
 
-        <div className="space-y-4">
-          <Suspense fallback={<PostSkeletons />}>
-            <h2 className="text-xl text-white">Posts</h2>
-            <Await resolve={activeThreadPosts}>
-              {(posts) =>
-                posts.length > 0 ? (
-                  <ul className="space-y-4">
-                    {posts.map((post) => (
-                      <ThreadPost
-                        key={post.id}
-                        post={post}
-                        thread={thread}
-                        isShareUrl={isShareUrl}
-                        onDelete={handlePostDelete}
-                        showJson={showJson}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-center py-8 text-gray-400">
-                    <svg
-                      className="w-12 h-12 mx-auto mb-3 text-gray-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                      />
-                    </svg>
-                    <p>No posts yet</p>
-                    <p className="text-sm mt-1">
-                      Be the first to start the conversation
-                    </p>
-                  </div>
-                )
-              }
-            </Await>
-          </Suspense>
-        </div>
+        {/* Memoize the post list to prevent unnecessary re-renders */}
+        {React.useMemo(() => (
+          <div className="space-y-4">
+            <Suspense fallback={<PostSkeletons />}>
+              <h2 className="text-xl text-white">Posts</h2>
+              <Await resolve={activeThreadPosts}>
+                {(posts) => {
+                  // Use a memoized post list component
+                  if (posts.length > 0) {
+                    return (
+                      <ul className="space-y-4">
+                        {posts.map((post) => (
+                          <ThreadPost
+                            key={post.id}
+                            post={post}
+                            thread={thread}
+                            isShareUrl={isShareUrl}
+                            onDelete={handlePostDelete}
+                            showJson={showJson}
+                          />
+                        ))}
+                      </ul>
+                    );
+                  } else {
+                    return (
+                      <div className="text-center py-8 text-gray-400">
+                        <svg
+                          className="w-12 h-12 mx-auto mb-3 text-gray-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                          />
+                        </svg>
+                        <p>No posts yet</p>
+                        <p className="text-sm mt-1">
+                          Be the first to start the conversation
+                        </p>
+                      </div>
+                    );
+                  }
+                }}
+              </Await>
+            </Suspense>
+          </div>
+        ), [activeThreadPosts, thread, isShareUrl, showJson, handlePostDelete])}
       </div>
     );
   }
