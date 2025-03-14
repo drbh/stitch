@@ -1,4 +1,4 @@
-name = "cloudflare-d1-thread-server"
+name = "stitch-server"
 main = "src/index.ts"
 compatibility_date = "2025-02-14"
 

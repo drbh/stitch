@@ -1,6 +1,6 @@
 import { Router, RouterType, IRequest } from 'itty-router';
-import { D1ThreadClient, createTracingD1Database } from '../../thread-again/app/clients/d1';
-import type { ThreadCreateData, PostCreateData } from '../../thread-again/app/clients/types';
+import { D1ThreadClient, createTracingD1Database } from '../../stitch-ui/app/clients/d1';
+import type { ThreadCreateData, PostCreateData } from '../../stitch-ui/app/clients/types';
 import { ApiOperation, generateOpenApiSpec } from './openapi';
 
 export interface Env {

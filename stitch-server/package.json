@@ -1,5 +1,5 @@
 {
-	"name": "cloudflare-d1-server",
+	"name": "stitch-server",
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
