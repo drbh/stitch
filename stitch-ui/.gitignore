@@ -6,4 +6,4 @@ node_modules
 .dev.vars
 
 .wrangler
-thread-again/.vscode
+stitch-ui/.vscode

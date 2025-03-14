@@ -1,5 +1,5 @@
 import { R2Object, R2ObjectBody } from "@cloudflare/workers-types";
-import { ThreadClient } from "../clients/types";
+import { ThreadClient } from "./types";
 import type {
   Thread,
   ThreadCreateData,
@@ -8,7 +8,7 @@ import type {
   Document,
   APIKey,
   Webhook,
-} from "../clients/types";
+} from "./types";
 
 /**
  * A minimal D1 Database interface. In your Cloudflare Worker,
