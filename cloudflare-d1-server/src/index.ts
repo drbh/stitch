@@ -793,12 +793,20 @@ class ApiRoutes {
 	@routeTrace
 	async createDocument(request: Request): Promise<Response> {
 		try {
-			const data = await request.json() as DocumentCreateRequest;
-			const document = await this.env.threadClient!.createDocument(data.thread_id, {
-				title: data.title,
-				content: data.content,
-				type: data.type,
-			});
+			const data = await request.formData();
+			const postData: {
+				title: string;
+				content: string;
+				type: string;
+				file?: File;
+			} = {
+				title: data.get('title') as string,
+				content: data.get('content') as string,
+				type: data.get('type') as string,
+				file: data.get('file') as File,
+			};
+			const theadId = Number(data.get('threadId'));
+			const document = await this.env.threadClient!.createDocument(theadId, postData);
 			return Response.json(document);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
