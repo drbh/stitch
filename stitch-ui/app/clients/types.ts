@@ -206,4 +206,9 @@ export type LoaderData = {
     showMenu: boolean;
   };
   buildHash: string;
+  threadViewingState?: {
+    showJson: boolean;
+    showDevNote: boolean;
+    showActivityChart: boolean;
+  };
 };

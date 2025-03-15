@@ -4,7 +4,6 @@ import { useLoaderData } from "@remix-run/react";
 import { clientMiddleware } from "~/middleware/storageClient";
 import type {
   Thread,
-  BackendConnection,
   Document as TDocument,
   APIKey,
   Webhook,
@@ -16,10 +15,8 @@ import { RestThreadClient } from "~/clients/rest";
 import { getBuildHash } from "~/utils/build-hash.server";
 import Topbar from "~/components/Topbar";
 import Sidebar from "~/components/Sidebar";
-import ThreadSettingView from "~/components/ThreadSettingView";
-import MenuIcon from "~/components/MenuIcon";
 import MainContent from "~/components/MainContent";
-import DocumentPanel from "~/components/DocumentPanel";
+import { getInitialThreadActionsState } from "~/components/ThreadActionsContext";
 
 import _action from "~/service/actions";
 
@@ -37,6 +34,9 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
   const buildHash = getBuildHash();
+
+  // Get thread viewing state from cookie
+  const threadViewingState = getInitialThreadActionsState(request);
 
   // Measure the clientMiddleware call.
   const middlewareStart = Date.now();
@@ -274,6 +274,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     initialViewConfig,
     activeThreadPosts,
     buildHash,
+    threadViewingState,
   };
 
   console.log(`[TRACE] Loader finished in ${Date.now() - overallStart}ms`);
@@ -334,6 +335,7 @@ export default function Index() {
     initialViewConfig,
     activeThreadPosts,
     buildHash,
+    threadViewingState,
   } = useLoaderData<LoaderData>();
 
   // updapte showSettings to be true if there are no backends and were not shared
@@ -420,6 +422,7 @@ export default function Index() {
           activeThreadDocuments={activeThreadDocuments}
           activeThreadApiKeys={activeThreadApiKeys}
           isShareUrl={initialViewConfig.isShareUrl}
+          threadViewingState={threadViewingState}
         />
         {/* <DocumentPanel /> */}
       </div>

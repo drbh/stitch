@@ -319,9 +319,10 @@ export default function MainContent(props: {
   activeThreadDocuments: Promise<TDocument[]>;
   activeThreadApiKeys: Promise<APIKey[]>;
   isShareUrl: boolean;
+  threadViewingState?: any;
 }) {
   return (
-    <ThreadActionsProvider>
+    <ThreadActionsProvider initialState={props.threadViewingState}>
       <MainContentInner {...props} />
     </ThreadActionsProvider>
   );

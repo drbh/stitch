@@ -1,24 +1,5 @@
-import React, { useState, useEffect, Suspense, useRef } from "react";
-import type { LoaderFunction, ActionFunction } from "@remix-run/cloudflare";
-import { useLoaderData, useFetcher, Await } from "@remix-run/react";
 import { clientMiddleware } from "~/middleware/storageClient";
-import type {
-  Thread,
-  BackendConnection,
-  Document as TDocument,
-  APIKey,
-  Webhook,
-  Post,
-  LoaderData,
-  ThreadClient,
-} from "~/clients/types";
-import SettingsModal from "~/components/SettingsModal";
 import { RestThreadClient } from "~/clients/rest";
-import { getBuildHash } from "~/utils/build-hash.server";
-import ThreadPostList from "~/components/ThreadPostList";
-import Topbar from "~/components/Topbar";
-import Sidebar from "~/components/Sidebar";
-import CloseIcon from "~/components/CloseIcon";
 
 const _action = async ({ request, context }) => {
   // inplace update the clientMiddleware
@@ -47,6 +28,7 @@ const _action = async ({ request, context }) => {
     "updateApiKey",
     "removeApiKey",
     "getApiKeys",
+    "updateThreadViewingState",
   ];
 
   if (server && !servers.includes(server)) {
@@ -748,6 +730,46 @@ const _action = async ({ request, context }) => {
         "Content-Type": "application/json",
       },
     });
+  } else if (intent === "updateThreadViewingState") {
+    const stateJson = String(formData.get("state"));
+
+    if (!stateJson) {
+      return new Response(null, { status: 400 });
+    }
+
+    try {
+      // Parse the state to validate it
+      const state = JSON.parse(stateJson);
+
+      // Set cookie with the thread viewing state
+      const cookieOptions = [
+        `threadViewingState=${encodeURIComponent(stateJson)}`,
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Max-Age=31536000", // 1 year
+      ];
+
+      const headers = new Headers();
+      headers.set("Content-Type", "application/json");
+      headers.append("Set-Cookie", cookieOptions.join("; "));
+
+      const data: { success: boolean } = { success: true };
+      return new Response(JSON.stringify(data), { headers });
+    } catch (error) {
+      console.error("Error parsing thread viewing state:", error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Invalid thread viewing state",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
   } else {
     return new Response(null, { status: 400 });
   }
