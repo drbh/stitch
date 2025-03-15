@@ -40,6 +40,8 @@ export default {
       border: {
         DEFAULT: "#404040",
         focus: "#666666",
+        interactive: "#404040",
+        transparent: "transparent",
       },
       // Interactive element colors
       interactive: {
@@ -51,8 +53,15 @@ export default {
       blue: {
         900: "#0c4a6e",
         800: "#075985",
-        700: "#0369a1",
-        600: "#0284c7",
+        // 700: "#0369a1",
+        // 600: "#0284c7",
+
+        //  TESTs
+        // 600: "#03283c",
+
+        700: "#48299d",
+        600: "#382c83",
+        500: "#19143c",
       },
       green: {
         900: "#065f46",

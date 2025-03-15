@@ -152,10 +152,60 @@ const MarkdownPreview = ({ content }) => {
   );
 };
 
+// QuickStart notification card component
+const QuickStartCard = ({ options, onSelectOption, onDismiss }) => {
+  return (
+    <div className="bg-surface-primary border border-border rounded-md mb-4 overflow-hidden">
+      <div className="flex justify-between items-center px-4 py-3 bg-surface-secondary">
+        <h2 className="text-lg text-white font-medium">
+          Quick Start Templates
+        </h2>
+        <button
+          onClick={onDismiss}
+          className="text-gray-400 hover:text-white transition-colors"
+          aria-label="Dismiss quick start card"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div className="p-4">
+        <p className="text-gray-400 mb-4">
+          Choose a template to get started quickly:
+        </p>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-2">
+          {options.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onSelectOption(option)}
+              className="flex flex-col items-center justify-center p-4 bg-surface-secondary rounded-md hover:bg-surface-tertiary transition-colors"
+              title={option.description}
+            >
+              <span className="text-2xl mb-2">{option.icon}</span>
+              <span className="text-sm text-gray-300">{option.title}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Main ThreadComposer component
 function ThreadComposer({ servers }: { servers: string[] }) {
   const fetcher = useFetcher<{ success: boolean }>();
-
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [location, setLocation] = useState(
@@ -163,6 +213,22 @@ function ThreadComposer({ servers }: { servers: string[] }) {
   );
   const [showPreview, setShowPreview] = useState(false);
   const [showMarkdownHelper, setShowMarkdownHelper] = useState(false);
+  // Initialize state but don't render until we've checked localStorage
+  const [showQuickStart, setShowQuickStart] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Check localStorage on component mount to determine if quick start should be shown
+  useEffect(() => {
+    // Only access localStorage after component is mounted to avoid SSR issues
+    const quickStartDismissed = localStorage.getItem("quickStartDismissed");
+    setShowQuickStart(quickStartDismissed !== "true");
+    setIsInitialized(true);
+  }, []);
+
+  const handleDismissQuickStart = () => {
+    setShowQuickStart(false);
+    localStorage.setItem("quickStartDismissed", "true");
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -231,28 +297,14 @@ function ThreadComposer({ servers }: { servers: string[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Quick Start Section */}
-      <div className="thread-quick-starts">
-        <div className="bg-surface-primary p-4 rounded-md mb-4">
-          <h2 className="text-xl text-white mb-2">Quick Start</h2>
-          <p className="text-gray-400 mb-4">
-            Choose a thread type to get started quickly:
-          </p>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {quickStartOptions.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => handleQuickStart(option)}
-                className="flex flex-col items-center justify-center p-4 bg-surface-secondary rounded-md hover:bg-surface-tertiary transition-colors"
-                title={option.description} // Provides info on hover
-              >
-                <span className="text-2xl mb-2">{option.icon}</span>
-                <span className="text-sm text-gray-300">{option.title}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Quick Start Section - only shows if not dismissed and initialization is complete */}
+      {isInitialized && showQuickStart && (
+        <QuickStartCard
+          options={quickStartOptions}
+          onSelectOption={handleQuickStart}
+          onDismiss={handleDismissQuickStart}
+        />
+      )}
 
       {/* Thread Form */}
       <h2 className="text-xl text-white">New Thread</h2>
@@ -274,16 +326,14 @@ function ThreadComposer({ servers }: { servers: string[] }) {
               </option>
             ))}
         </select>
-
         {/* Thread Title */}
         <input
           type="text"
           placeholder="Thread Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="w-full px-4 py-2 bg-surface-secondary border border-border rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+          className="w-full px-4 py-2 bg-surface-primary outline-none border border-border rounded-md text-white placeholder-gray-500 focus:ring-0 focus:ring-blue-600 focus:border-blue-600"
         />
-
         {/* Content Section with Markdown Support */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
@@ -313,7 +363,6 @@ function ThreadComposer({ servers }: { servers: string[] }) {
                 </svg>
                 Help
               </button>
-
               {/* Preview Toggle */}
               <PreviewToggle
                 showPreview={showPreview}
@@ -321,17 +370,15 @@ function ThreadComposer({ servers }: { servers: string[] }) {
               />
             </div>
           </div>
-
           {/* Markdown Helper Panel */}
           {showMarkdownHelper && <MarkdownHelper />}
-
           {/* Content Input or Preview */}
           {!showPreview ? (
             <textarea
               placeholder="Write your content here using Markdown..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="w-full px-4 py-2 h-24 bg-surface-secondary border border-border rounded-md text-white placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500 font-mono"
+              className="w-full px-4 py-2 h-24 bg-surface-primary outline-none border border-border rounded-md text-white placeholder-gray-500 resize-none 0 focus:ring-blue-600 focus:border-blue-600 font-mono"
             />
           ) : (
             <div className="h-64">
@@ -339,7 +386,6 @@ function ThreadComposer({ servers }: { servers: string[] }) {
             </div>
           )}
         </div>
-
         {/* Submit Button */}
         <button
           type="submit"

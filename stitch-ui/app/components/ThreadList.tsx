@@ -607,11 +607,11 @@ function ThreadList({
                           <li
                             key={thread.id + thread.location!}
                             onClick={() => setActiveThread(thread)}
-                            className={`p-3 rounded-md border transition-colors ${
+                            className={`p-3 rounded-md outline-none border transition-colors ${
                               activeThread?.id === thread.id &&
                               activeThread?.location === thread.location
-                                ? "bg-surface-secondary border-border text-white"
-                                : "bg-surface-primary border-border text-gray-200 hover:bg-surface-tertiary"
+                                ? "bg-surface-secondary border-blue-600 text-white"
+                                : "bg-surface-primary border-border text-gray-200 hover:bg-surface-secondary"
                             }`}
                           >
                             <div className="flex justify-between items-start">

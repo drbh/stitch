@@ -8,11 +8,11 @@ import type {
   Post,
 } from "~/clients/types";
 import ThreadPostList from "~/components/ThreadPostList";
-import ThreadSettingView from "~/components/ThreadSettingView";
 import ThreadHeader from "~/components/ThreadHeader";
 import ThreadTabBar, { ThreadTab } from "~/components/ThreadTabBar";
 import DocumentsTab from "~/components/DocumentsTab";
 import AccessTab from "~/components/AccessTab";
+import WebhooksTab from "~/components/WebhooksTab";
 
 // Memoized wrapper to prevent unnecessary rerenders
 const ThreadPostListWrapper = memo(forwardRef((props, ref) => {
@@ -227,22 +227,12 @@ export default function MainContent({
             ref={ref}
             stateMirror={stateMirror}
             setStateMirror={setStateMirror}
-
             currentTab={currentTab}
             handleTabChange={handleTabChange}
             counts={counts}
             isShareUrl={isShareUrl}
             handleShareUrlCreate={handleShareUrlCreate}
           />
-
-          {/* Tab navigation */}
-          {/* <ThreadTabBar
-            currentTab={currentTab}
-            handleTabChange={handleTabChange}
-            counts={counts}
-            isShareUrl={isShareUrl}
-            handleShareUrlCreate={handleShareUrlCreate}
-          /> */}
 
           {/* Tab content - Use React.memo to prevent unnecessary rerenders */}
           {currentTab === ThreadTab.Posts ? (
@@ -253,7 +243,7 @@ export default function MainContent({
               ref={ref}
             />
           ) : currentTab === ThreadTab.Webhooks ? (
-            <ThreadSettingView activeThreadWebhooks={activeThreadWebhooks} />
+            <WebhooksTab activeThreadWebhooks={activeThreadWebhooks} />
           ) : currentTab === ThreadTab.Documents ? (
             <DocumentsTab
               thread={activeThread}

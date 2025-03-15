@@ -1,6 +1,6 @@
 import { Router, RouterType, IRequest } from 'itty-router';
 import { D1ThreadClient, createTracingD1Database } from '../../stitch-ui/app/clients/d1';
-import type { ThreadCreateData, PostCreateData } from '../../stitch-ui/app/clients/types';
+import type { ThreadCreateData, PostCreateData, Webhook } from '../../stitch-ui/app/clients/types';
 import { ApiOperation, generateOpenApiSpec } from './openapi';
 
 export interface Env {
@@ -30,6 +30,102 @@ interface ApiKeyUpdateRequest {
 interface PostUpdateRequest {
 	text: string;
 	image?: File;
+}
+
+/**
+ * Helper function to trigger webhooks for various events
+ * @param threadClient The thread client instance
+ * @param threadId The thread ID associated with the event
+ * @param eventType The type of event (post_created, post_updated, etc.)
+ * @param data The data to send with the webhook (post or document object)
+ */
+async function triggerWebhooks(
+  threadClient: D1ThreadClient,
+  threadId: number,
+  eventType: string,
+  data: any
+): Promise<void> {
+  try {
+    // Get all webhooks for this thread
+    const webhooks = await threadClient.getThreadWebhooks(threadId);
+
+    if (!webhooks || webhooks.length === 0) {
+      return; // No webhooks to trigger
+    }
+
+    // Prepare the payload
+    const payload = {
+      event: eventType,
+      data,
+      timestamp: new Date().toISOString()
+    };
+
+    // Convert payload to JSON string - we'll use this for both the request body and signature
+    const payloadString = JSON.stringify(payload);
+
+    // Trigger each webhook in parallel
+    const webhookPromises = webhooks.map(async (webhook: Webhook) => {
+      try {
+        // Set up basic headers
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+
+        // Generate HMAC-SHA256 signature if a secret is provided
+        if (webhook.api_key) {
+          // Use Web Crypto API to generate the HMAC signature
+          // First, encode the message and key
+          const encoder = new TextEncoder();
+          const messageUint8 = encoder.encode(payloadString);
+          const keyUint8 = encoder.encode(webhook.api_key);
+
+          // Import the key
+          const key = await crypto.subtle.importKey(
+            'raw',
+            keyUint8,
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          );
+
+          // Sign the message
+          const signature = await crypto.subtle.sign(
+            'HMAC',
+            key,
+            messageUint8
+          );
+
+          // Convert the signature to hex
+          const signatureHex = Array.from(new Uint8Array(signature))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+
+          // Add the signature to the headers
+          headers['X-Webhook-Signature'] = signatureHex;
+        }
+
+        // Send the webhook request
+        const response = await fetch(webhook.url, {
+          method: 'POST',
+          headers,
+          body: payloadString
+        });
+
+        // Update the last triggered timestamp
+        if (response.status >= 200 && response.status < 300) {
+          await threadClient.updateWebhookLastTriggered(webhook.id);
+        }
+
+        return { webhookId: webhook.id, success: response.ok, status: response.status };
+      } catch (error) {
+        console.error(`[TRACE] Error triggering webhook ${webhook.id}:`, error);
+        return { webhookId: webhook.id, success: false, error: String(error) };
+      }
+    });
+
+    // Wait for all webhooks to be processed
+    await Promise.allSettled(webhookPromises);
+  } catch (error) {
+    console.error(`[TRACE] Error in triggerWebhooks:`, error);
+  }
 }
 
 /**
@@ -308,6 +404,26 @@ class ApiRoutes {
 				image,
 			};
 			const thread = await this.env.threadClient!.createThread(threadData);
+
+			// Trigger webhooks for thread_created event - for the initial post
+			if (thread && thread.posts && thread.posts.length > 0) {
+				const initialPost = thread.posts[0];
+				await triggerWebhooks(
+					this.env.threadClient!,
+					thread.id,
+					"post_created",
+					initialPost
+				);
+
+				// Also trigger a thread_created event
+				await triggerWebhooks(
+					this.env.threadClient!,
+					thread.id,
+					"thread_created",
+					thread
+				);
+			}
+
 			return Response.json(thread);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -348,6 +464,19 @@ class ApiRoutes {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
+			// Get thread data before deletion for the webhook payload
+			const thread = await this.env.threadClient!.getThread(id);
+
+			if (thread) {
+				// Trigger webhooks for thread_deleted event before deleting the thread
+				await triggerWebhooks(
+					this.env.threadClient!,
+					id,
+					"thread_deleted",
+					thread
+				);
+			}
+
 			await this.env.threadClient!.deleteThread(id);
 			return Response.json({ message: 'Thread deleted' });
 		} catch (e: any) {
@@ -413,6 +542,15 @@ class ApiRoutes {
 			const sharePubkey = data.get('sharePubkey') as string;
 			const threadData = { title, sharePubkey };
 			const thread = await this.env.threadClient!.updateThread(id, threadData);
+
+			// Trigger webhooks for thread_updated event
+			await triggerWebhooks(
+				this.env.threadClient!,
+				id,
+				"thread_updated",
+				thread
+			);
+
 			return Response.json(thread);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -475,30 +613,16 @@ class ApiRoutes {
 				text: data.get('text') as string,
 				image: data.get('image') as File | undefined,
 			};
-			console.log('🌈🌈🌈 postData', postData);
 			const post = await this.env.threadClient!.createPost(id, postData, 'user');
-			// Notify all webhooks
-			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
-			for (const webhook of webhooks) {
-				try {
-					const headers: HeadersInit = { 'Content-Type': 'application/json' };
-					if (webhook.api_key) {
-						headers['Authorization'] = `Bearer ${webhook.api_key}`;
-					}
-					await fetch(webhook.url, {
-						method: 'POST',
-						headers,
-						body: JSON.stringify({
-							event: 'post.created',
-							thread_id: id,
-							post,
-						}),
-					});
-					await this.env.threadClient!.updateWebhookLastTriggered(webhook.id);
-				} catch (error) {
-					console.error(`[TRACE] Failed to notify webhook ${webhook.id}:`, error);
-				}
-			}
+
+			// Trigger webhooks for post_created event
+			await triggerWebhooks(
+				this.env.threadClient!,
+				id,
+				"post_created",
+				post
+			);
+
 			return Response.json(post);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -558,28 +682,15 @@ class ApiRoutes {
 		try {
 			const data = await request.json() as PostCreateData;
 			const post = await this.env.threadClient!.createPost(id, data, 'system');
-			// Notify all webhooks
-			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
-			for (const webhook of webhooks) {
-				try {
-					const headers: HeadersInit = { 'Content-Type': 'application/json' };
-					if (webhook.api_key) {
-						headers['Authorization'] = `Bearer ${webhook.api_key}`;
-					}
-					await fetch(webhook.url, {
-						method: 'POST',
-						headers,
-						body: JSON.stringify({
-							event: 'post.created',
-							thread_id: id,
-							post,
-						}),
-					});
-					await this.env.threadClient!.updateWebhookLastTriggered(webhook.id);
-				} catch (error) {
-					console.error(`[TRACE] Failed to notify webhook ${webhook.id}:`, error);
-				}
-			}
+
+			// Trigger webhooks for post_created event
+			await triggerWebhooks(
+				this.env.threadClient!,
+				id,
+				"post_created",
+				post
+			);
+
 			return Response.json(post);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -805,8 +916,17 @@ class ApiRoutes {
 				type: data.get('type') as string,
 				file: data.get('file') as File,
 			};
-			const theadId = Number(data.get('threadId'));
-			const document = await this.env.threadClient!.createDocument(theadId, postData);
+			const threadId = Number(data.get('threadId'));
+			const document = await this.env.threadClient!.createDocument(threadId, postData);
+
+			// Trigger webhooks for document_created event
+			await triggerWebhooks(
+				this.env.threadClient!,
+				threadId,
+				"document_created",
+				document
+			);
+
 			return Response.json(document);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -890,8 +1010,25 @@ class ApiRoutes {
 	async deleteDocument(request: Request): Promise<Response> {
 		const { docId } = (request as any).params;
 		try {
-			await this.env.threadClient!.deleteDocument(docId);
-			return Response.json({ message: 'Document deleted' });
+			// Get document data before deletion for the webhook payload
+			const document = await this.env.threadClient!.getDocument(docId);
+			if (document) {
+				await this.env.threadClient!.deleteDocument(docId);
+
+				// Trigger webhooks for document_deleted event
+				if (document.thread_id) {
+					await triggerWebhooks(
+						this.env.threadClient!,
+						document.thread_id,
+						"document_deleted",
+						document
+					);
+				}
+
+				return Response.json({ message: 'Document deleted' });
+			} else {
+				return new Response('Document not found', { status: 404 });
+			}
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
 		}
@@ -954,6 +1091,17 @@ class ApiRoutes {
 				content: data.content,
 				type: data.type,
 			});
+
+			// Trigger webhooks for document_updated event
+			if (document && document.thread_id) {
+				await triggerWebhooks(
+					this.env.threadClient!,
+					document.thread_id,
+					"document_updated",
+					document
+				);
+			}
+
 			return Response.json(document);
 		} catch (e: any) {
 			return new Response(e.message, { status: 500 });
@@ -1227,6 +1375,17 @@ class ApiRoutes {
 		if (!post) {
 			return new Response('Post not found', { status: 404 });
 		}
+
+		// Trigger webhooks for post_updated event
+		if (post.thread_id) {
+			await triggerWebhooks(
+				this.env.threadClient!,
+				post.thread_id,
+				"post_updated",
+				post
+			);
+		}
+
 		return Response.json(post);
 	}
 
@@ -1263,8 +1422,31 @@ class ApiRoutes {
 		if (isNaN(id)) {
 			return new Response('Invalid post ID', { status: 400 });
 		}
-		await this.env.threadClient!.deletePost(id);
-		return Response.json({ message: 'Post deleted' });
+
+		try {
+			// Get post data before deletion for the webhook payload
+			const post = await this.env.threadClient!.getPost(id);
+
+			if (post) {
+				const threadId = post.thread_id;
+				await this.env.threadClient!.deletePost(id);
+
+				// Trigger webhooks for post_deleted event
+				await triggerWebhooks(
+					this.env.threadClient!,
+					threadId,
+					"post_deleted",
+					post
+				);
+			} else {
+				await this.env.threadClient!.deletePost(id);
+			}
+
+			return Response.json({ message: 'Post deleted' });
+		} catch (e: any) {
+			console.error("Error in deletePost:", e);
+			return new Response(e.message, { status: 500 });
+		}
 	}
 
 	@ApiOperation({

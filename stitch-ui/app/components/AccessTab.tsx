@@ -29,7 +29,7 @@ export default function AccessTab({
           <input
             type="text"
             placeholder="API Key Name"
-            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-0 focus:ring-border-focus focus:border-transparent"
           />
           <button
             type="submit"

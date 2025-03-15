@@ -284,7 +284,7 @@ function PostComposer({ threadId, onPostSuccess }) {
             placeholder="Write your reply using Markdown..."
             value={postContent}
             onChange={(e) => setPostContent(e.target.value)}
-            className="w-full px-4 py-3 bg-surface-secondary border border-border rounded-lg text-white placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500 min-h-24"
+            className="w-full px-4 py-3 bg-surface-primary outline-none border border-border rounded-lg text-white placeholder-gray-500 resize-none focus:ring-0 focus:ring-blue-600 focus:border-blue-600 min-h-24"
             disabled={isUploading}
           />
         ) : (

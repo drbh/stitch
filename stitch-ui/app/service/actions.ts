@@ -10,6 +10,7 @@ import type {
   Webhook,
   Post,
   LoaderData,
+  ThreadClient,
 } from "~/clients/types";
 import SettingsModal from "~/components/SettingsModal";
 import { RestThreadClient } from "~/clients/rest";
@@ -18,7 +19,6 @@ import ThreadPostList from "~/components/ThreadPostList";
 import Topbar from "~/components/Topbar";
 import Sidebar from "~/components/Sidebar";
 import CloseIcon from "~/components/CloseIcon";
-
 
 const _action = async ({ request, context }) => {
   // inplace update the clientMiddleware
@@ -33,9 +33,11 @@ const _action = async ({ request, context }) => {
   let allowedActions = [
     "createThread",
     "createPost",
+    "updatePost",
     "updateSettings",
     "createWebhook",
     "removeWebhook",
+    "testWebhook",
     "createDocument",
     "deleteDocument",
     "deleteThread",
@@ -112,7 +114,7 @@ const _action = async ({ request, context }) => {
     }
 
     // create the post in the selected server
-    const _newPost = await storageClient.createPost(parseInt(threadId), {
+    const newPost = await storageClient.createPost(parseInt(threadId), {
       text: content,
       image: selectedImageFile,
     });
@@ -124,6 +126,64 @@ const _action = async ({ request, context }) => {
       },
     });
     return response;
+  } else if (intent === "updatePost") {
+    const postId = String(formData.get("postId"));
+    const content = String(formData.get("content"));
+    const url = new URL(request.url);
+    const threadId = String(url.searchParams.get("t"));
+    const server = String(url.searchParams.get("s"));
+
+    if (!postId || !content) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Post ID and content are required",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
+
+    try {
+      const storageClient = context.storageClients[server];
+      if (!storageClient) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: "Invalid server",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 400,
+          }
+        );
+      }
+
+      // Update the post
+      const updatedPost = await storageClient.updatePost(parseInt(postId), {
+        text: content,
+      });
+
+      const data: { success: boolean } = { success: true };
+      return new Response(JSON.stringify(data), {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: error.message || "Failed to update post",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
   } else if (intent === "updateSettings") {
     const jsonStringBackends = formData.getAll("backends");
     const jsonStringApiKeys = formData.getAll("apiKeys");
@@ -170,41 +230,270 @@ const _action = async ({ request, context }) => {
     const secret = String(formData.get("secret"));
     const threadId = String(new URL(request.url).searchParams.get("t"));
     const server = String(new URL(request.url).searchParams.get("s"));
+    const eventTypes = formData.get("eventTypes")
+      ? JSON.parse(String(formData.get("eventTypes")))
+      : null;
 
     if (!url) {
-      return new Response(null, { status: 400 });
+      return new Response(
+        JSON.stringify({ success: false, message: "URL is required" }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
     }
 
-    // addWebhook
-    const _newWebhook = await context.storageClients[server].addWebhook(
-      parseInt(threadId),
-      url,
-      secret
-    );
+    try {
+      // Add webhook with additional metadata
+      const _newWebhook = await context.storageClients[server].addWebhook(
+        parseInt(threadId),
+        url,
+        secret
+      );
 
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+      const data: { success: boolean; webhook?: any } = {
+        success: true,
+        webhook: _newWebhook,
+      };
+
+      return new Response(JSON.stringify(data), {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: error.message || "Failed to create webhook",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
   } else if (intent === "removeWebhook") {
     const webhookId = String(formData.get("webhookId"));
     const threadId = String(new URL(request.url).searchParams.get("t"));
     const server = String(new URL(request.url).searchParams.get("s"));
 
     if (!webhookId) {
-      return new Response(null, { status: 400 });
+      return new Response(
+        JSON.stringify({ success: false, message: "Webhook ID is required" }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
     }
 
-    await context.storageClients[server].removeWebhook(parseInt(webhookId));
+    try {
+      await context.storageClients[server].removeWebhook(parseInt(webhookId));
 
-    const data: { success: boolean } = { success: true };
-    return new Response(JSON.stringify(data), {
-      headers: {
+      const data: { success: boolean } = { success: true };
+      return new Response(JSON.stringify(data), {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: error.message || "Failed to remove webhook",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
+  } else if (intent === "testWebhook") {
+    const webhookId = String(formData.get("webhookId"));
+    const threadId = String(new URL(request.url).searchParams.get("t"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+    // Optional custom event type but only from predefined list
+    const eventType = String(formData.get("eventType") || "post_created");
+
+    // Validate event type is one of the allowed values
+    const allowedEventTypes = [
+      "post_created",
+      "post_updated",
+      "post_deleted",
+      "document_created",
+      "document_updated",
+      "document_deleted",
+    ];
+
+    if (!allowedEventTypes.includes(eventType)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Invalid event type",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
+
+    if (!webhookId) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Webhook ID is required",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
+
+    try {
+      // Get the webhook to access its URL and secret
+      const webhooks = await context.storageClients[server].getThreadWebhooks(
+        parseInt(threadId)
+      );
+      const webhook = webhooks.find((w) => w.id === parseInt(webhookId));
+
+      if (!webhook) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: "Webhook not found",
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 404,
+          }
+        );
+      }
+
+      // Server-defined default payload based on the event type
+      const defaultPayload = {
+        event: eventType,
+        data: eventType.startsWith("post")
+          ? {
+              id: 123,
+              thread_id: parseInt(threadId),
+              author: "system",
+              text: "This is a test webhook payload",
+              time: new Date().toISOString(),
+              is_initial_post: false,
+            }
+          : {
+              id: 456,
+              thread_id: parseInt(threadId),
+              title: "Test Document",
+              type: "text/plain",
+              content: "Test document content",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+        timestamp: new Date().toISOString(),
+      };
+
+      const webhookTestHeaders: HeadersInit = {
         "Content-Type": "application/json",
-      },
-    });
+        "X-Webhook-Test": "true",
+      };
+
+      // Convert payload to JSON string - we'll use this for both the request body and signature
+      const payloadString = JSON.stringify(defaultPayload);
+
+      // Generate HMAC-SHA256 signature if a secret is provided
+      if (webhook.api_key) {
+        // Use Web Crypto API to generate the HMAC signature
+        // First, encode the message and key
+        const encoder = new TextEncoder();
+        const messageUint8 = encoder.encode(payloadString);
+        const keyUint8 = encoder.encode(webhook.api_key);
+
+        // Import the key
+        const key = await crypto.subtle.importKey(
+          "raw",
+          keyUint8,
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+
+        // Sign the message
+        const signature = await crypto.subtle.sign("HMAC", key, messageUint8);
+
+        // Convert the signature to hex
+        const signatureHex = Array.from(new Uint8Array(signature))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        // Add the signature to the headers
+        webhookTestHeaders["X-Webhook-Signature"] = signatureHex;
+      }
+
+      // Make the actual HTTP request to the webhook URL
+      const response = await fetch(webhook.url, {
+        method: "POST",
+        headers: webhookTestHeaders,
+        body: JSON.stringify(defaultPayload),
+      });
+
+      // Read the response data
+      const responseText = await response.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = responseText;
+      }
+
+      // Collect response headers
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      // Update the webhook's last_triggered timestamp if available
+      try {
+        if (context.storageClients[server].updateWebhookLastTriggered) {
+          await context.storageClients[server].updateWebhookLastTriggered(
+            parseInt(webhookId)
+          );
+        }
+      } catch (e) {
+        console.error("Failed to update webhook last_triggered:", e);
+      }
+
+      const testResponse = {
+        success: true,
+        status: response.status,
+        headers: headers,
+        data: responseData,
+        sentPayload: defaultPayload,
+      };
+
+      console.log("Response from webhook test:", testResponse);
+
+      return new Response(JSON.stringify(testResponse), {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: error.message || "Failed to test webhook",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
   } else if (intent === "createDocument") {
     const title = String(formData.get("title"));
     const threadId = String(new URL(request.url).searchParams.get("t"));
@@ -216,17 +505,20 @@ const _action = async ({ request, context }) => {
     let content = "";
 
     if (!title) {
-      return new Response(JSON.stringify({ success: false, message: "Title is required" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 400
-      });
+      return new Response(
+        JSON.stringify({ success: false, message: "Title is required" }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
     }
 
     if (file instanceof File) {
       // For multimedia files (images, audio, video), we'll use the bucket storage
 
       // TODO: revisit how to handled text based (editable files?)
-      if (file.type.startsWith('text/')) {
+      if (file.type.startsWith("text/")) {
         // For text files, read their content
         const buffer = await file.arrayBuffer();
         const decoder = new TextDecoder();
@@ -234,16 +526,16 @@ const _action = async ({ request, context }) => {
       } else {
         // For non-text files, set placeholder content
         // The actual file will be stored in the bucket by the storage client
-        content = null
+        content = null;
       }
 
-      const _newDocument = await context.storageClients[server].createDocument(
+      const newDocument = await context.storageClients[server].createDocument(
         parseInt(threadId),
         {
           title,
           content,
           type: String(file.type),
-          file // Pass the actual file to be stored in bucket
+          file, // Pass the actual file to be stored in bucket
         }
       );
     } else {
@@ -251,13 +543,16 @@ const _action = async ({ request, context }) => {
       content = String(formData.get("content") || "");
 
       if (!content) {
-        return new Response(JSON.stringify({ success: false, message: "Content is required" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 400
-        });
+        return new Response(
+          JSON.stringify({ success: false, message: "Content is required" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 400,
+          }
+        );
       }
 
-      const _newDocument = await context.storageClients[server].createDocument(
+      const newDocument = await context.storageClients[server].createDocument(
         parseInt(threadId),
         { title, content, type: String(fileType) }
       );
@@ -277,8 +572,23 @@ const _action = async ({ request, context }) => {
       return new Response(null, { status: 400 });
     }
 
-    // deleteDocument
-    await context.storageClients[server].deleteDocument(docId);
+    // Get document data before deletion for the webhook payload
+    let documentData = null;
+    const storageClient = context.storageClients[server];
+    const threadId = String(new URL(request.url).searchParams.get("t"));
+
+    try {
+      // If there's a getDocument method, use it to get document data for the webhook
+      if (storageClient.getDocument) {
+        documentData = await storageClient.getDocument(docId);
+      }
+
+      // deleteDocument
+      await storageClient.deleteDocument(docId);
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      // Continue with the deletion even if webhook triggering fails
+    }
 
     const data: { success: boolean } = { success: true };
     return new Response(JSON.stringify(data), {
@@ -307,13 +617,26 @@ const _action = async ({ request, context }) => {
   if (intent === "deletePost") {
     const postId = String(formData.get("postId"));
     const server = String(new URL(request.url).searchParams.get("s"));
+    const threadId = String(new URL(request.url).searchParams.get("t"));
 
     if (!postId) {
       return new Response(null, { status: 400 });
     }
 
-    // deletePost
-    await context.storageClients[server].deletePost(parseInt(postId));
+    // Get the post data before deleting it for the webhook payload
+    let postData = null;
+    try {
+      const storageClient = context.storageClients[server];
+      // First get the post information if available
+      if (storageClient.getPost) {
+        postData = await storageClient.getPost(parseInt(postId));
+      }
+
+      // deletePost
+      await storageClient.deletePost(parseInt(postId));
+    } catch (error) {
+      console.error("Error in deletePost:", error);
+    }
 
     const data: { success: boolean } = { success: true };
     return new Response(JSON.stringify(data), {
@@ -383,6 +706,5 @@ const _action = async ({ request, context }) => {
     return new Response(null, { status: 400 });
   }
 };
-
 
 export default _action;

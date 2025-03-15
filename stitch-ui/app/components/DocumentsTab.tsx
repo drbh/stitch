@@ -149,7 +149,7 @@ export default function DocumentsTab({
               placeholder="Search documents..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="px-3 py-1.5 bg-surface-tertiary border border-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 pl-8"
+              className="px-3 py-1.5 bg-surface-secondary border border-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-600 pl-8"
             />
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -228,7 +228,7 @@ export default function DocumentsTab({
           ref={dragAreaRef}
           className={`bg-surface-primary rounded-lg shadow-lg p-6 ${
             isDragging
-              ? "border-2 border-dashed border-blue-500"
+              ? "border border-dashed border-blue-600"
               : "border border-border"
           }`}
           onDragOver={handleDragOver}
@@ -241,7 +241,7 @@ export default function DocumentsTab({
 
           {/* File selector area */}
           {!selectedFile && (
-            <div className="flex flex-col items-center justify-center p-8 bg-surface-tertiary rounded-lg border border-dashed border-border mb-4">
+            <div className="flex flex-col items-center justify-center p-8 bg-surface-secondary rounded-lg border border-dashed border-border mb-4">
               <div className="text-gray-400 mb-4">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -283,7 +283,7 @@ export default function DocumentsTab({
 
           {/* Selected file preview */}
           {selectedFile && (
-            <div className="mb-4 p-4 bg-surface-tertiary rounded-lg border border-border">
+            <div className="mb-4 p-4 bg-surface-secondary rounded-lg border border-border">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-3">
                   {getFileTypeIcon(selectedFile.type)}
@@ -332,7 +332,7 @@ export default function DocumentsTab({
           )}
 
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <div>
+            {/* <div>
               <label
                 htmlFor="docTitle"
                 className="block text-sm font-medium text-gray-300 mb-1"
@@ -345,12 +345,12 @@ export default function DocumentsTab({
                 placeholder="Document Title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
+                className="w-full px-4 py-2 bg-surface-secondary border border-border rounded-lg focus:ring-2 focus:ring-border-focus focus:border-transparent"
               />
-            </div>
+            </div> */}
 
             {/* Only show content textarea if no file is selected or it's a text file */}
-            {(!selectedFile || selectedFile.type.startsWith("text/")) && (
+            {/* {(!selectedFile || selectedFile.type.startsWith("text/")) && (
               <div>
                 <label
                   htmlFor="docContent"
@@ -363,10 +363,10 @@ export default function DocumentsTab({
                   placeholder="Document Content"
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  className="w-full px-4 py-2 h-32 bg-surface-tertiary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
+                  className="w-full px-4 py-2 h-32 bg-surface-secondary border border-border rounded-lg resize-none focus:ring-2 focus:ring-border-focus focus:border-transparent"
                 />
               </div>
-            )}
+            )} */}
 
             <button
               type="submit"
@@ -408,8 +408,8 @@ export default function DocumentsTab({
         <Suspense
           fallback={
             <div className="space-y-4">
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
-              <div className="animate-pulse bg-surface-tertiary p-4 rounded-lg h-24"></div>
+              <div className="animate-pulse bg-surface-secondary p-4 rounded-lg h-24"></div>
+              <div className="animate-pulse bg-surface-secondary p-4 rounded-lg h-24"></div>
             </div>
           }
         >
@@ -463,9 +463,9 @@ export default function DocumentsTab({
                   {filteredDocuments.map((document) => (
                     <div
                       key={document.id}
-                      className="bg-surface-tertiary rounded-lg overflow-hidden border border-border hover:border-blue-500 transition-colors"
+                      className="bg-surface-primary rounded-lg overflow-hidden border border-border hover:bg-surface-secondary transition-colors"
                     >
-                      <div className="p-4">
+                      <div className="p-4 h-64 overflow-y-auto">
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-2">
                             {getFileTypeIcon(document.type)}
@@ -526,8 +526,8 @@ export default function DocumentsTab({
                 // List view
                 <ul className="space-y-2 divide-y divide-border">
                   {filteredDocuments.map((document) => (
-                    <li key={document.id} className="pt-2 first:pt-0 pb-2">
-                      <div className="flex items-center justify-between bg-surface-tertiary p-4 rounded-lg hover:bg-surface-secondary transition-colors">
+                    <li key={document.id} className="pt-2 first:pt-0 ">
+                      <div className="flex items-center justify-between bg-surface-primary border border-border p-4 rounded-lg hover:bg-surface-secondary transition-colors">
                         <div className="flex items-center gap-3">
                           {getFileTypeIcon(document.type)}
                           <div>

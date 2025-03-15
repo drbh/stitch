@@ -72,6 +72,9 @@ const ThreadPost = ({
   showJson: boolean;
 }) => {
   const [jsonExpanded, setJsonExpanded] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState(post.text);
+  const fetcher = useFetcher();
 
   // Parse the timestamp and format as relative time
   const getRelativeTime = (timestamp: string) => {
@@ -175,25 +178,51 @@ const ThreadPost = ({
 
         <div className="flex items-center space-x-2 flex-shrink-0">
           {!isShareUrl && (
-            <button
-              className="text-gray-400 hover:text-gray-200 transition-colors"
-              onClick={(e) => onDelete(e, post.id)}
-              aria-label="Delete post"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+            <>
+              <button
+                className="text-gray-400 hover:text-gray-200 transition-colors"
+                onClick={() => setIsEditing(true)}
+                aria-label="Edit post"
               >
-                <path
-                  d="M6 18L18 6M6 6l12 12"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                className="text-gray-400 hover:text-gray-200 transition-colors"
+                onClick={(e) => onDelete(e, post.id)}
+                aria-label="Delete post"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    d="M6 18L18 6M6 6l12 12"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -224,11 +253,51 @@ const ThreadPost = ({
           </div>
         )}
 
-        {/* Render post content as Markdown */}
-        <div
-          className="text-gray-300 markdown-content"
-          dangerouslySetInnerHTML={renderMarkdown(post.text)}
-        />
+        {isEditing ? (
+          <div className="space-y-3">
+            <textarea
+              className="w-full bg-surface-primary outline-none border border-border rounded-md p-3 text-gray-300 focus:ring-0 focus:ring-blue-600 focus:border-blue-600"
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              rows={5}
+              placeholder="Edit your post..."
+            />
+            <div className="flex space-x-2 justify-end">
+              <button
+                className="px-3 py-1 bg-surface-secondary hover:bg-gray-600 text-gray-300 rounded-md text-sm"
+                onClick={() => {
+                  setIsEditing(false);
+                  setEditedText(post.text);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-sm"
+                onClick={() => {
+                  // Submit the update to the server
+                  fetcher.submit(
+                    {
+                      intent: "updatePost",
+                      postId: String(post.id),
+                      content: editedText,
+                    },
+                    { method: "post" }
+                  );
+                  setIsEditing(false);
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Render post content as Markdown */
+          <div
+            className="text-gray-300 markdown-content"
+            dangerouslySetInnerHTML={renderMarkdown(post.text)}
+          />
+        )}
 
         {/* JSON Viewer */}
         {showJson && (
