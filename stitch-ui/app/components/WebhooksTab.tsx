@@ -176,7 +176,7 @@ function WebhooksTab({
         <h2 className="text-xl font-semibold text-content-accent">Webhooks</h2>
         <button
           onClick={() => setIsFormVisible(!isFormVisible)}
-          className="px-4 py-2 bg-interactive hover:bg-interactive-hover active:bg-interactive-active text-white font-medium rounded-lg transition-colors"
+          className="px-4 py-2 bg-surface-primary border border-border hover:bg-surface-secondary active:bg-interactive-active text-white font-medium rounded-lg transition-colors"
         >
           {isFormVisible ? "Cancel" : "Add Webhook"}
         </button>

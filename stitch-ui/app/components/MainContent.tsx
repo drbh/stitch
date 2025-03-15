@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, memo, forwardRef } from "react";
-import { useFetcher } from "@remix-run/react";
+import React, { useState, useEffect, memo, Suspense } from "react";
+import { Await, useFetcher } from "@remix-run/react";
 import type {
   Thread,
   Webhook,
@@ -9,17 +9,34 @@ import type {
 } from "~/clients/types";
 import ThreadPostList from "~/components/ThreadPostList";
 import ThreadHeader from "~/components/ThreadHeader";
-import ThreadTabBar, { ThreadTab } from "~/components/ThreadTabBar";
+import { ThreadTab } from "~/components/ThreadTabBar";
 import DocumentsTab from "~/components/DocumentsTab";
 import AccessTab from "~/components/AccessTab";
 import WebhooksTab from "~/components/WebhooksTab";
+import DeveloperCard from "~/components/DeveloperCard";
+import ActivityChart from "~/components/ActivityChart";
+import {
+  ThreadActionsProvider,
+  useThreadActions,
+} from "./ThreadActionsContext";
 
 // Memoized wrapper to prevent unnecessary rerenders
-const ThreadPostListWrapper = memo(forwardRef((props, ref) => {
-  return <ThreadPostList {...props} ref={ref} />;
-}));
+const ThreadPostListWrapper = memo(
+  ({ thread, isShareUrl, activeThreadPosts }) => {
+    const { state } = useThreadActions();
+    return (
+      <ThreadPostList
+        thread={thread}
+        isShareUrl={isShareUrl}
+        activeThreadPosts={activeThreadPosts}
+        showJson={state.showJson}
+      />
+    );
+  }
+);
 
-export default function MainContent({
+// Main content component
+function MainContentInner({
   activeThread,
   activeThreadPosts,
   activeThreadWebhooks,
@@ -37,20 +54,18 @@ export default function MainContent({
   const [currentTab, setCurrentTab] = useState(ThreadTab.Posts);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const fetcher = useFetcher<{ success: boolean }>();
-  const ref = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [stateMirror, setStateMirror] = useState({
-    showJson: false,
-    showDevNote: false,
-    showActivityChart: true
-  });
   const [counts, setCounts] = useState({
     posts: 0,
-    settings: 0,
     documents: 0,
+    webhooks: 0,
     access: 0,
   });
   const [url, setUrl] = useState("");
+
+  // Get thread actions from context
+  const { state } = useThreadActions();
+  const { showDevNote, showActivityChart } = state;
 
   // Handle tab navigation - memoize to prevent rerenders
   const handleTabChange = React.useCallback((tab: ThreadTab) => {
@@ -117,16 +132,10 @@ export default function MainContent({
   };
 
   // API key handlers
-  const handleApiKeySubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const name = form[0].value;
-    if (!name) return;
-
+  const handleApiKeySubmit = () => {
     fetcher.submit(
       {
         intent: "createApiKey",
-        name,
       },
       { method: "post" }
     );
@@ -135,14 +144,18 @@ export default function MainContent({
   const updateAPIKey = (updated: APIKey) => {
     fetcher.submit(
       {
-        intent: "updated",
-        updated: JSON.stringify(updated),
+        intent: "updateApiKey",
+        keyId: updated.id,
+        apiKey: updated.api_key,
+        keyName: updated.key_name,
+        permissions: JSON.stringify(updated.permissions),
       },
       { method: "post" }
     );
   };
 
   const removeAPIKey = (id: string) => {
+    console.log("removeAPIKey", id);
     fetcher.submit(
       {
         intent: "removeApiKey",
@@ -155,7 +168,7 @@ export default function MainContent({
   // Load data and update counts
   useEffect(() => {
     activeThreadWebhooks.then((webhooks) => {
-      setCounts((prev) => ({ ...prev, settings: webhooks.length }));
+      setCounts((prev) => ({ ...prev, webhooks: webhooks.length }));
     });
     activeThreadDocuments.then((documents) => {
       setCounts((prev) => ({ ...prev, documents: documents.length }));
@@ -174,7 +187,7 @@ export default function MainContent({
     }
 
     return () => {
-      setCounts({ posts: 0, settings: 0, documents: 0, access: 0 });
+      setCounts({ posts: 0, webhooks: 0, documents: 0, access: 0 });
     };
   }, [
     activeThreadWebhooks,
@@ -183,23 +196,6 @@ export default function MainContent({
     activeThreadPosts,
     activeThread,
   ]);
-
-  // Initialize state mirror with default values
-  // then attach listeners only when necessary
-  const initStateMirror = React.useCallback(() => {
-    if (ref.current && ref.current.states) {
-      setStateMirror(ref.current.states);
-    }
-  }, []);
-
-  // Only get a reference to the threadPostList when Posts tab is active
-  useEffect(() => {
-    if (currentTab === ThreadTab.Posts) {
-      // Delay to ensure component is rendered
-      const timer = setTimeout(initStateMirror, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [currentTab, initStateMirror]);
 
   // Handle clicking outside the actions menu
   useEffect(() => {
@@ -224,9 +220,6 @@ export default function MainContent({
             activeThread={activeThread}
             isOpen={isOpen}
             setIsOpen={setIsOpen}
-            ref={ref}
-            stateMirror={stateMirror}
-            setStateMirror={setStateMirror}
             currentTab={currentTab}
             handleTabChange={handleTabChange}
             counts={counts}
@@ -234,13 +227,59 @@ export default function MainContent({
             handleShareUrlCreate={handleShareUrlCreate}
           />
 
+          {showDevNote && <DeveloperCard thread={activeThread} />}
+
+          {React.useMemo(() => {
+            if (!showActivityChart) return null;
+
+            return (
+              <Suspense
+                fallback={
+                  <div className="bg-zinc-900 rounded-md border border-border p-4 mb-6 animate-pulse">
+                    <div className="h-5 bg-zinc-800 rounded w-1/3 mb-4"></div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div
+                          key={i}
+                          className="bg-zinc-800 rounded-md p-3 border border-border"
+                        >
+                          <div className="h-2 bg-surface-tertiary rounded w-1/2 mb-2"></div>
+                          <div className="h-5 bg-surface-tertiary rounded w-1/3"></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 mb-4">
+                      {Array(35)
+                        .fill(0)
+                        .map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-3 h-3 bg-zinc-800 rounded-sm"
+                          ></div>
+                        ))}
+                    </div>
+                  </div>
+                }
+              >
+                <Await resolve={activeThreadPosts}>
+                  {(posts) => (
+                    <ActivityChart
+                      posts={posts}
+                      weeksToShow={26}
+                      colorTheme="blue"
+                    />
+                  )}
+                </Await>
+              </Suspense>
+            );
+          }, [showActivityChart, activeThreadPosts])}
+
           {/* Tab content - Use React.memo to prevent unnecessary rerenders */}
           {currentTab === ThreadTab.Posts ? (
             <ThreadPostListWrapper
               thread={activeThread}
               isShareUrl={isShareUrl}
               activeThreadPosts={activeThreadPosts}
-              ref={ref}
             />
           ) : currentTab === ThreadTab.Webhooks ? (
             <WebhooksTab activeThreadWebhooks={activeThreadWebhooks} />
@@ -269,6 +308,22 @@ export default function MainContent({
 
       <div className="mt-20 text-center text-gray-400 text-sm" />
     </main>
+  );
+}
+
+// Wrapper component that provides the ThreadActions context
+export default function MainContent(props: {
+  activeThread: Thread | null;
+  activeThreadPosts: Promise<Post[]>;
+  activeThreadWebhooks: Promise<Webhook[]>;
+  activeThreadDocuments: Promise<TDocument[]>;
+  activeThreadApiKeys: Promise<APIKey[]>;
+  isShareUrl: boolean;
+}) {
+  return (
+    <ThreadActionsProvider>
+      <MainContentInner {...props} />
+    </ThreadActionsProvider>
   );
 }
 

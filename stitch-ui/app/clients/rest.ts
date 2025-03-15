@@ -362,8 +362,8 @@ export class RestThreadClient extends ThreadClient {
     return await response.json();
   }
 
-  async updateAPIKey(key: string, permissions: any): Promise<APIKey> {
-    const response = await this.makeRequest(`/api/api_keys/${key}`, {
+  async updateAPIKey(apiKey: string, permissions: any): Promise<APIKey> {
+    const response = await this.makeRequest(`/api/apikeys/${apiKey}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ permissions }),
@@ -375,9 +375,11 @@ export class RestThreadClient extends ThreadClient {
   }
 
   async deleteAPIKey(key: string): Promise<void> {
-    const response = await this.makeRequest(`/api/api_keys/${key}`, {
+    console.log("!!!!!!!!!!!!!!!!! deleteAPIKey", key);
+    const response = await this.makeRequest(`/api/apikeys/${key}`, {
       method: "DELETE",
     });
+    console.log(response);
     if (!response.ok) {
       throw new Error(await response.text());
     }

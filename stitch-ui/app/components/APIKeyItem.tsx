@@ -39,7 +39,7 @@ function APIKeyItem({
   }, [apiKey, isEditing]);
 
   const handleKeyChange = (value: string) => {
-    setEditingData((prev) => ({ ...prev, key: value }));
+    setEditingData((prev) => ({ ...prev, key_name: value }));
   };
 
   const handleCheckboxChange = (
@@ -105,7 +105,8 @@ function APIKeyItem({
           value={editingData.key_name}
           onChange={(e) => handleKeyChange(e.target.value)}
           className="bg-surface-tertiary mt-1 w-full border border-border rounded p-2"
-          placeholder="Enter API key"
+          placeholder="Enter key name"
+          disabled={true}
         />
       </div>
       <div className="mb-4">

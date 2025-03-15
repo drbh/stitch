@@ -39,93 +39,78 @@ interface PostUpdateRequest {
  * @param eventType The type of event (post_created, post_updated, etc.)
  * @param data The data to send with the webhook (post or document object)
  */
-async function triggerWebhooks(
-  threadClient: D1ThreadClient,
-  threadId: number,
-  eventType: string,
-  data: any
-): Promise<void> {
-  try {
-    // Get all webhooks for this thread
-    const webhooks = await threadClient.getThreadWebhooks(threadId);
+async function triggerWebhooks(threadClient: D1ThreadClient, threadId: number, eventType: string, data: any): Promise<void> {
+	try {
+		// Get all webhooks for this thread
+		const webhooks = await threadClient.getThreadWebhooks(threadId);
 
-    if (!webhooks || webhooks.length === 0) {
-      return; // No webhooks to trigger
-    }
+		if (!webhooks || webhooks.length === 0) {
+			return; // No webhooks to trigger
+		}
 
-    // Prepare the payload
-    const payload = {
-      event: eventType,
-      data,
-      timestamp: new Date().toISOString()
-    };
+		// Prepare the payload
+		const payload = {
+			event: eventType,
+			data,
+			timestamp: new Date().toISOString(),
+		};
 
-    // Convert payload to JSON string - we'll use this for both the request body and signature
-    const payloadString = JSON.stringify(payload);
+		// Convert payload to JSON string - we'll use this for both the request body and signature
+		const payloadString = JSON.stringify(payload);
 
-    // Trigger each webhook in parallel
-    const webhookPromises = webhooks.map(async (webhook: Webhook) => {
-      try {
-        // Set up basic headers
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+		// Trigger each webhook in parallel
+		const webhookPromises = webhooks.map(async (webhook: Webhook) => {
+			try {
+				// Set up basic headers
+				const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
-        // Generate HMAC-SHA256 signature if a secret is provided
-        if (webhook.api_key) {
-          // Use Web Crypto API to generate the HMAC signature
-          // First, encode the message and key
-          const encoder = new TextEncoder();
-          const messageUint8 = encoder.encode(payloadString);
-          const keyUint8 = encoder.encode(webhook.api_key);
+				// Generate HMAC-SHA256 signature if a secret is provided
+				if (webhook.api_key) {
+					// Use Web Crypto API to generate the HMAC signature
+					// First, encode the message and key
+					const encoder = new TextEncoder();
+					const messageUint8 = encoder.encode(payloadString);
+					const keyUint8 = encoder.encode(webhook.api_key);
 
-          // Import the key
-          const key = await crypto.subtle.importKey(
-            'raw',
-            keyUint8,
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign']
-          );
+					// Import the key
+					const key = await crypto.subtle.importKey('raw', keyUint8, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
 
-          // Sign the message
-          const signature = await crypto.subtle.sign(
-            'HMAC',
-            key,
-            messageUint8
-          );
+					// Sign the message
+					const signature = await crypto.subtle.sign('HMAC', key, messageUint8);
 
-          // Convert the signature to hex
-          const signatureHex = Array.from(new Uint8Array(signature))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
+					// Convert the signature to hex
+					const signatureHex = Array.from(new Uint8Array(signature))
+						.map((b) => b.toString(16).padStart(2, '0'))
+						.join('');
 
-          // Add the signature to the headers
-          headers['X-Webhook-Signature'] = signatureHex;
-        }
+					// Add the signature to the headers
+					headers['X-Webhook-Signature'] = signatureHex;
+				}
 
-        // Send the webhook request
-        const response = await fetch(webhook.url, {
-          method: 'POST',
-          headers,
-          body: payloadString
-        });
+				// Send the webhook request
+				const response = await fetch(webhook.url, {
+					method: 'POST',
+					headers,
+					body: payloadString,
+				});
 
-        // Update the last triggered timestamp
-        if (response.status >= 200 && response.status < 300) {
-          await threadClient.updateWebhookLastTriggered(webhook.id);
-        }
+				// Update the last triggered timestamp
+				if (response.status >= 200 && response.status < 300) {
+					await threadClient.updateWebhookLastTriggered(webhook.id);
+				}
 
-        return { webhookId: webhook.id, success: response.ok, status: response.status };
-      } catch (error) {
-        console.error(`[TRACE] Error triggering webhook ${webhook.id}:`, error);
-        return { webhookId: webhook.id, success: false, error: String(error) };
-      }
-    });
+				return { webhookId: webhook.id, success: response.ok, status: response.status };
+			} catch (error) {
+				console.error(`[TRACE] Error triggering webhook ${webhook.id}:`, error);
+				return { webhookId: webhook.id, success: false, error: String(error) };
+			}
+		});
 
-    // Wait for all webhooks to be processed
-    await Promise.allSettled(webhookPromises);
-  } catch (error) {
-    console.error(`[TRACE] Error in triggerWebhooks:`, error);
-  }
+		// Wait for all webhooks to be processed
+		await Promise.allSettled(webhookPromises);
+	} catch (error) {
+		console.error(`[TRACE] Error in triggerWebhooks:`, error);
+	}
 }
 
 /**
@@ -135,7 +120,7 @@ async function triggerWebhooks(
 function routeTrace(target: Object, propertyKey: string | symbol, descriptor: PropertyDescriptor): PropertyDescriptor {
 	const originalMethod = descriptor.value;
 
-	descriptor.value = async function(request: IRequest) {
+	descriptor.value = async function (request: IRequest) {
 		const start = Date.now();
 		try {
 			const result = await originalMethod.call(this, request);
@@ -150,7 +135,15 @@ function routeTrace(target: Object, propertyKey: string | symbol, descriptor: Pr
 }
 
 // Helper function to compose decorators
-function compose(...decorators: Array<(target: any, propertyKey: string | symbol, descriptor: TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>) => TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>>): MethodDecorator {
+function compose(
+	...decorators: Array<
+		(
+			target: any,
+			propertyKey: string | symbol,
+			descriptor: TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>
+		) => TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>
+	>
+): MethodDecorator {
 	return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
 		return decorators.reduceRight((desc, decorator) => {
 			return decorator(target, propertyKey, desc as TypedPropertyDescriptor<(request: IRequest) => Promise<Response>>) || desc;
@@ -219,10 +212,92 @@ class ApiMiddleware {
 			});
 		}
 		if (useDefaultAuthCheck) {
-			if (apiKey !== this.env.API_KEY) {
-				console.log('[TRACE] Invalid API key');
-				return new Response('Invalid API key', { status: 403 });
+			// now we need to check if its the master key (for the whole api)
+			// or if its a thread key
+
+			if (apiKey === this.env.API_KEY) {
+				console.log('[TRACE] Valid API key');
+				return;
 			}
+
+			// now before exiting theres a chance that its a thread key
+
+			const urlParts = request.url.split('/');
+			let foundThreadId = '';
+			let foundThread = false;
+			for (const part of urlParts) {
+				if (foundThread) {
+					// if its latest continue one more time
+					if (part === 'latest') {
+						continue;
+					}
+
+					foundThreadId = part;
+					break;
+				}
+				if (part === 'threads') {
+					foundThread = true;
+				}
+			}
+
+			if (foundThreadId === '') {
+				console.log('[TRACE] Thread ID not found');
+				return new Response('Thread ID not found and invalid API key', { status: 404 });
+			}
+
+			const threadId = foundThreadId;
+			const threadApiKeys = await this.env.threadClient!.getThreadApiKeys(Number(threadId));
+
+			console.log(apiKey);
+
+			const matchingThreadKey = threadApiKeys.find((threadApiKey) => {
+				return threadApiKey.api_key === apiKey;
+			});
+
+			console.log(matchingThreadKey);
+
+			if (matchingThreadKey) {
+				// Parse the stored permissions
+				let permissions;
+				try {
+					let permissionsString = matchingThreadKey.permissions;
+					permissions = JSON.parse(permissionsString);
+				} catch (e) {
+					console.log('[TRACE] Invalid permissions format:', matchingThreadKey.permissions);
+					permissions = { read: false, write: false, delete: false };
+				}
+
+				console.log('CAN WRITE', permissions.write);
+				console.log('CAN READ', permissions.read);
+				console.log('CAN DELETE', permissions.delete);
+
+				// Enforce permissions based on request method
+				const method = request.method.toUpperCase();
+
+				// GET requests require read permission
+				if (method === 'GET' && !permissions.read) {
+					console.log('[TRACE] Read permission denied');
+					return new Response('Insufficient permissions: read access required', { status: 403 });
+				}
+
+				// POST and PUT requests require write permission
+				if ((method === 'POST' || method === 'PUT' || method === 'PATCH') && !permissions.write) {
+					console.log('[TRACE] Write permission denied');
+					return new Response('Insufficient permissions: write access required', { status: 403 });
+				}
+
+				// DELETE requests require delete permission
+				if (method === 'DELETE' && !permissions.delete) {
+					console.log('[TRACE] Delete permission denied');
+					return new Response('Insufficient permissions: delete access required', { status: 403 });
+				}
+
+				// If we get here, the permission check passed
+				console.log('[TRACE] Valid thread API key with permissions:', permissions);
+
+				return;
+			}
+			return new Response('Invalid API key', { status: 403 });
 		}
 	}
 }
@@ -249,12 +324,12 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							type: 'object'
-						}
-					}
-				}
-			}
-		}
+							type: 'object',
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getOpenApiSpec(request: IRequest): Promise<Response> {
@@ -275,13 +350,13 @@ class ApiRoutes {
 						schema: {
 							type: 'array',
 							items: {
-								$ref: '#/components/schemas/Thread'
-							}
-						}
-					}
-				}
-			}
-		}
+								$ref: '#/components/schemas/Thread',
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getThreads(request: IRequest): Promise<Response> {
@@ -305,10 +380,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve'
-			}
+				description: 'ID of the thread to retrieve',
+			},
 		],
 		responses: {
 			'200': {
@@ -316,15 +391,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Thread'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Thread',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Thread not found'
-			}
-		}
+				description: 'Thread not found',
+			},
+		},
 	})
 	@routeTrace
 	async getThreadById(request: IRequest): Promise<Response> {
@@ -353,22 +428,22 @@ class ApiRoutes {
 						type: 'object',
 						properties: {
 							title: { type: 'string' },
-							creator: { type: 'string' }
+							creator: { type: 'string' },
 						},
-						required: ['title', 'creator']
-					}
+						required: ['title', 'creator'],
+					},
 				},
 				'multipart/form-data': {
 					schema: {
 						type: 'object',
 						properties: {
 							title: { type: 'string' },
-							creator: { type: 'string' }
+							creator: { type: 'string' },
 						},
-						required: ['title', 'creator']
-					}
-				}
-			}
+						required: ['title', 'creator'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
@@ -376,15 +451,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Thread'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Thread',
+						},
+					},
+				},
 			},
 			'400': {
-				description: 'Invalid request'
-			}
-		}
+				description: 'Invalid request',
+			},
+		},
 	})
 	@routeTrace
 	async createThread(request: IRequest): Promise<Response> {
@@ -408,20 +483,10 @@ class ApiRoutes {
 			// Trigger webhooks for thread_created event - for the initial post
 			if (thread && thread.posts && thread.posts.length > 0) {
 				const initialPost = thread.posts[0];
-				await triggerWebhooks(
-					this.env.threadClient!,
-					thread.id,
-					"post_created",
-					initialPost
-				);
+				await triggerWebhooks(this.env.threadClient!, thread.id, 'post_created', initialPost);
 
 				// Also trigger a thread_created event
-				await triggerWebhooks(
-					this.env.threadClient!,
-					thread.id,
-					"thread_created",
-					thread
-				);
+				await triggerWebhooks(this.env.threadClient!, thread.id, 'thread_created', thread);
 			}
 
 			return Response.json(thread);
@@ -442,19 +507,19 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to delete'
-			}
+				description: 'ID of the thread to delete',
+			},
 		],
 		responses: {
 			'200': {
-				description: 'Thread deleted successfully'
+				description: 'Thread deleted successfully',
 			},
 			'404': {
-				description: 'Thread not found'
-			}
-		}
+				description: 'Thread not found',
+			},
+		},
 	})
 	@routeTrace
 	async deleteThread(request: Request): Promise<Response> {
@@ -469,12 +534,7 @@ class ApiRoutes {
 
 			if (thread) {
 				// Trigger webhooks for thread_deleted event before deleting the thread
-				await triggerWebhooks(
-					this.env.threadClient!,
-					id,
-					"thread_deleted",
-					thread
-				);
+				await triggerWebhooks(this.env.threadClient!, id, 'thread_deleted', thread);
 			}
 
 			await this.env.threadClient!.deleteThread(id);
@@ -496,10 +556,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to update'
-			}
+				description: 'ID of the thread to update',
+			},
 		],
 		requestBody: {
 			content: {
@@ -507,11 +567,11 @@ class ApiRoutes {
 					schema: {
 						type: 'object',
 						properties: {
-							title: { type: 'string' }
-						}
-					}
-				}
-			}
+							title: { type: 'string' },
+						},
+					},
+				},
+			},
 		},
 		responses: {
 			'200': {
@@ -519,15 +579,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Thread'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Thread',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Thread not found'
-			}
-		}
+				description: 'Thread not found',
+			},
+		},
 	})
 	@routeTrace
 	async updateThread(request: Request): Promise<Response> {
@@ -544,12 +604,7 @@ class ApiRoutes {
 			const thread = await this.env.threadClient!.updateThread(id, threadData);
 
 			// Trigger webhooks for thread_updated event
-			await triggerWebhooks(
-				this.env.threadClient!,
-				id,
-				"thread_updated",
-				thread
-			);
+			await triggerWebhooks(this.env.threadClient!, id, 'thread_updated', thread);
 
 			return Response.json(thread);
 		} catch (e: any) {
@@ -569,10 +624,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to create post in'
-			}
+				description: 'ID of the thread to create post in',
+			},
 		],
 		requestBody: {
 			content: {
@@ -580,12 +635,12 @@ class ApiRoutes {
 					schema: {
 						type: 'object',
 						properties: {
-							text: { type: 'string' }
+							text: { type: 'string' },
 						},
-						required: ['text']
-					}
-				}
-			}
+						required: ['text'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
@@ -593,12 +648,12 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Post'
-						}
-					}
-				}
-			}
-		}
+							$ref: '#/components/schemas/Post',
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async createUserPost(request: Request): Promise<Response> {
@@ -607,21 +662,40 @@ class ApiRoutes {
 		if (isNaN(id)) {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
+
+		// check if form data or json
+		const contentType = request.headers.get('content-type');
+		console.log(contentType);
+
+		// Check if the content type is multipart/form-data or application/json
+		const isMultiPart = contentType && contentType.includes('multipart/form-data');
+		const isJson = contentType && contentType.includes('application/json');
+		if (!isMultiPart && !isJson) {
+			return new Response('Invalid content type', { status: 400 });
+		}
+
 		try {
-			const data = await request.formData();
-			const postData: PostCreateData = {
-				text: data.get('text') as string,
-				image: data.get('image') as File | undefined,
-			};
+			let postData: PostCreateData;
+
+			if (isJson) {
+				const data = await request.json();
+				postData = {
+					text: data.text as string,
+					image: data.image as File | undefined,
+				};
+			} else {
+				const data = await request.formData();
+				postData = {
+					text: data.get('text') as string,
+					image: data.get('image') as File | undefined,
+				};
+			}
+
+			console.log(postData);
 			const post = await this.env.threadClient!.createPost(id, postData, 'user');
 
 			// Trigger webhooks for post_created event
-			await triggerWebhooks(
-				this.env.threadClient!,
-				id,
-				"post_created",
-				post
-			);
+			await triggerWebhooks(this.env.threadClient!, id, 'post_created', post);
 
 			return Response.json(post);
 		} catch (e: any) {
@@ -641,10 +715,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to create system post in'
-			}
+				description: 'ID of the thread to create system post in',
+			},
 		],
 		requestBody: {
 			content: {
@@ -652,12 +726,12 @@ class ApiRoutes {
 					schema: {
 						type: 'object',
 						properties: {
-							text: { type: 'string' }
+							text: { type: 'string' },
 						},
-						required: ['text']
-					}
-				}
-			}
+						required: ['text'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
@@ -665,12 +739,12 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Post'
-						}
-					}
-				}
-			}
-		}
+							$ref: '#/components/schemas/Post',
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async createSystemPost(request: Request): Promise<Response> {
@@ -680,16 +754,11 @@ class ApiRoutes {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
-			const data = await request.json() as PostCreateData;
+			const data = (await request.json()) as PostCreateData;
 			const post = await this.env.threadClient!.createPost(id, data, 'system');
 
 			// Trigger webhooks for post_created event
-			await triggerWebhooks(
-				this.env.threadClient!,
-				id,
-				"post_created",
-				post
-			);
+			await triggerWebhooks(this.env.threadClient!, id, 'post_created', post);
 
 			return Response.json(post);
 		} catch (e: any) {
@@ -709,10 +778,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve posts from'
-			}
+				description: 'ID of the thread to retrieve posts from',
+			},
 		],
 		responses: {
 			'200': {
@@ -722,13 +791,13 @@ class ApiRoutes {
 						schema: {
 							type: 'array',
 							items: {
-								$ref: '#/components/schemas/Post'
-							}
-						}
-					}
-				}
-			}
-		}
+								$ref: '#/components/schemas/Post',
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getPosts(request: Request): Promise<Response> {
@@ -757,28 +826,28 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve posts from'
+				description: 'ID of the thread to retrieve posts from',
 			},
 			{
 				name: 'limit',
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'Maximum number of posts to retrieve'
+				description: 'Maximum number of posts to retrieve',
 			},
 			{
 				name: 'lastPostTime',
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'string'
+					type: 'string',
 				},
-				description: 'Timestamp of the last post retrieved'
-			}
+				description: 'Timestamp of the last post retrieved',
+			},
 		],
 		responses: {
 			'200': {
@@ -788,13 +857,13 @@ class ApiRoutes {
 						schema: {
 							type: 'array',
 							items: {
-								$ref: '#/components/schemas/Post'
-							}
-						}
-					}
-				}
-			}
-		}
+								$ref: '#/components/schemas/Post',
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getLatestPosts(request: Request): Promise<Response> {
@@ -830,10 +899,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve documents from'
-			}
+				description: 'ID of the thread to retrieve documents from',
+			},
 		],
 		responses: {
 			'200': {
@@ -843,13 +912,13 @@ class ApiRoutes {
 						schema: {
 							type: 'array',
 							items: {
-								$ref: '#/components/schemas/Document'
-							}
-						}
-					}
-				}
-			}
-		}
+								$ref: '#/components/schemas/Document',
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getDocuments(request: Request): Promise<Response> {
@@ -881,12 +950,12 @@ class ApiRoutes {
 							thread_id: { type: 'integer' },
 							title: { type: 'string' },
 							content: { type: 'string' },
-							type: { type: 'string' }
+							type: { type: 'string' },
 						},
-						required: ['thread_id', 'title', 'content', 'type']
-					}
-				}
-			}
+						required: ['thread_id', 'title', 'content', 'type'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
@@ -894,12 +963,12 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Document'
-						}
-					}
-				}
-			}
-		}
+							$ref: '#/components/schemas/Document',
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async createDocument(request: Request): Promise<Response> {
@@ -920,12 +989,7 @@ class ApiRoutes {
 			const document = await this.env.threadClient!.createDocument(threadId, postData);
 
 			// Trigger webhooks for document_created event
-			await triggerWebhooks(
-				this.env.threadClient!,
-				threadId,
-				"document_created",
-				document
-			);
+			await triggerWebhooks(this.env.threadClient!, threadId, 'document_created', document);
 
 			return Response.json(document);
 		} catch (e: any) {
@@ -945,10 +1009,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the document to retrieve'
-			}
+				description: 'ID of the document to retrieve',
+			},
 		],
 		responses: {
 			'200': {
@@ -956,15 +1020,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Document'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Document',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Document not found'
-			}
-		}
+				description: 'Document not found',
+			},
+		},
 	})
 	@routeTrace
 	async getDocument(request: Request): Promise<Response> {
@@ -992,19 +1056,19 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the document to delete'
-			}
+				description: 'ID of the document to delete',
+			},
 		],
 		responses: {
 			'200': {
-				description: 'Document deleted successfully'
+				description: 'Document deleted successfully',
 			},
 			'404': {
-				description: 'Document not found'
-			}
-		}
+				description: 'Document not found',
+			},
+		},
 	})
 	@routeTrace
 	async deleteDocument(request: Request): Promise<Response> {
@@ -1017,12 +1081,7 @@ class ApiRoutes {
 
 				// Trigger webhooks for document_deleted event
 				if (document.thread_id) {
-					await triggerWebhooks(
-						this.env.threadClient!,
-						document.thread_id,
-						"document_deleted",
-						document
-					);
+					await triggerWebhooks(this.env.threadClient!, document.thread_id, 'document_deleted', document);
 				}
 
 				return Response.json({ message: 'Document deleted' });
@@ -1046,10 +1105,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the document to update'
-			}
+				description: 'ID of the document to update',
+			},
 		],
 		requestBody: {
 			content: {
@@ -1059,11 +1118,11 @@ class ApiRoutes {
 						properties: {
 							title: { type: 'string' },
 							content: { type: 'string' },
-							type: { type: 'string' }
-						}
-					}
-				}
-			}
+							type: { type: 'string' },
+						},
+					},
+				},
+			},
 		},
 		responses: {
 			'200': {
@@ -1071,21 +1130,21 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Document'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Document',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Document not found'
-			}
-		}
+				description: 'Document not found',
+			},
+		},
 	})
 	@routeTrace
 	async updateDocument(request: Request): Promise<Response> {
 		try {
 			const { docId } = (request as any).params;
-			const data = await request.json() as DocumentCreateRequest;
+			const data = (await request.json()) as DocumentCreateRequest;
 			const document = await this.env.threadClient!.updateDocument(docId, {
 				title: data.title,
 				content: data.content,
@@ -1094,12 +1153,7 @@ class ApiRoutes {
 
 			// Trigger webhooks for document_updated event
 			if (document && document.thread_id) {
-				await triggerWebhooks(
-					this.env.threadClient!,
-					document.thread_id,
-					"document_updated",
-					document
-				);
+				await triggerWebhooks(this.env.threadClient!, document.thread_id, 'document_updated', document);
 			}
 
 			return Response.json(document);
@@ -1120,10 +1174,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve webhooks from'
-			}
+				description: 'ID of the thread to retrieve webhooks from',
+			},
 		],
 		responses: {
 			'200': {
@@ -1137,14 +1191,14 @@ class ApiRoutes {
 								properties: {
 									id: { type: 'integer' },
 									thread_id: { type: 'integer' },
-									url: { type: 'string' }
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+									url: { type: 'string' },
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getWebhooks(request: Request): Promise<Response> {
@@ -1173,10 +1227,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to add webhook to'
-			}
+				description: 'ID of the thread to add webhook to',
+			},
 		],
 		requestBody: {
 			content: {
@@ -1185,12 +1239,12 @@ class ApiRoutes {
 						type: 'object',
 						properties: {
 							url: { type: 'string' },
-							api_key: { type: 'string' }
+							api_key: { type: 'string' },
 						},
-						required: ['url']
-					}
-				}
-			}
+						required: ['url'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
@@ -1202,13 +1256,13 @@ class ApiRoutes {
 							properties: {
 								id: { type: 'integer' },
 								thread_id: { type: 'integer' },
-								url: { type: 'string' }
-							}
-						}
-					}
-				}
-			}
-		}
+								url: { type: 'string' },
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async addWebhook(request: Request): Promise<Response> {
@@ -1218,7 +1272,7 @@ class ApiRoutes {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
 		try {
-			const data = await request.json() as WebhookCreateRequest;
+			const data = (await request.json()) as WebhookCreateRequest;
 			await this.env.threadClient!.addWebhook(id, data.url, data.api_key);
 			const webhooks = await this.env.threadClient!.getThreadWebhooks(id);
 			return Response.json(webhooks[webhooks.length - 1]);
@@ -1239,19 +1293,19 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the webhook to delete'
-			}
+				description: 'ID of the webhook to delete',
+			},
 		],
 		responses: {
 			'200': {
-				description: 'Webhook deleted successfully'
+				description: 'Webhook deleted successfully',
 			},
 			'404': {
-				description: 'Webhook not found'
-			}
-		}
+				description: 'Webhook not found',
+			},
+		},
 	})
 	@routeTrace
 	async deleteWebhook(request: Request): Promise<Response> {
@@ -1280,10 +1334,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the post to retrieve'
-			}
+				description: 'ID of the post to retrieve',
+			},
 		],
 		responses: {
 			'200': {
@@ -1291,15 +1345,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Post'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Post',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Post not found'
-			}
-		}
+				description: 'Post not found',
+			},
+		},
 	})
 	@routeTrace
 	async getPost(request: Request): Promise<Response> {
@@ -1329,10 +1383,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the post to update'
-			}
+				description: 'ID of the post to update',
+			},
 		],
 		requestBody: {
 			content: {
@@ -1340,12 +1394,12 @@ class ApiRoutes {
 					schema: {
 						type: 'object',
 						properties: {
-							text: { type: 'string' }
+							text: { type: 'string' },
 						},
-						required: ['text']
-					}
-				}
-			}
+						required: ['text'],
+					},
+				},
+			},
 		},
 		responses: {
 			'200': {
@@ -1353,15 +1407,15 @@ class ApiRoutes {
 				content: {
 					'application/json': {
 						schema: {
-							$ref: '#/components/schemas/Post'
-						}
-					}
-				}
+							$ref: '#/components/schemas/Post',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'Post not found'
-			}
-		}
+				description: 'Post not found',
+			},
+		},
 	})
 	@routeTrace
 	async updatePost(request: Request): Promise<Response> {
@@ -1370,7 +1424,7 @@ class ApiRoutes {
 		if (isNaN(id)) {
 			return new Response('Invalid post ID', { status: 400 });
 		}
-		const data = await request.json() as PostUpdateRequest;
+		const data = (await request.json()) as PostUpdateRequest;
 		const post = await this.env.threadClient!.updatePost(id, data);
 		if (!post) {
 			return new Response('Post not found', { status: 404 });
@@ -1378,12 +1432,7 @@ class ApiRoutes {
 
 		// Trigger webhooks for post_updated event
 		if (post.thread_id) {
-			await triggerWebhooks(
-				this.env.threadClient!,
-				post.thread_id,
-				"post_updated",
-				post
-			);
+			await triggerWebhooks(this.env.threadClient!, post.thread_id, 'post_updated', post);
 		}
 
 		return Response.json(post);
@@ -1401,19 +1450,19 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the post to delete'
-			}
+				description: 'ID of the post to delete',
+			},
 		],
 		responses: {
 			'200': {
-				description: 'Post deleted successfully'
+				description: 'Post deleted successfully',
 			},
 			'404': {
-				description: 'Post not found'
-			}
-		}
+				description: 'Post not found',
+			},
+		},
 	})
 	@routeTrace
 	async deletePost(request: Request): Promise<Response> {
@@ -1432,19 +1481,14 @@ class ApiRoutes {
 				await this.env.threadClient!.deletePost(id);
 
 				// Trigger webhooks for post_deleted event
-				await triggerWebhooks(
-					this.env.threadClient!,
-					threadId,
-					"post_deleted",
-					post
-				);
+				await triggerWebhooks(this.env.threadClient!, threadId, 'post_deleted', post);
 			} else {
 				await this.env.threadClient!.deletePost(id);
 			}
 
 			return Response.json({ message: 'Post deleted' });
 		} catch (e: any) {
-			console.error("Error in deletePost:", e);
+			console.error('Error in deletePost:', e);
 			return new Response(e.message, { status: 500 });
 		}
 	}
@@ -1461,10 +1505,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to retrieve API keys from'
-			}
+				description: 'ID of the thread to retrieve API keys from',
+			},
 		],
 		responses: {
 			'200': {
@@ -1478,14 +1522,14 @@ class ApiRoutes {
 								properties: {
 									key: { type: 'string' },
 									name: { type: 'string' },
-									permissions: { type: 'string' }
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+									permissions: { type: 'string' },
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async getApiKeys(request: Request): Promise<Response> {
@@ -1510,10 +1554,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'integer'
+					type: 'integer',
 				},
-				description: 'ID of the thread to add API key to'
-			}
+				description: 'ID of the thread to add API key to',
+			},
 		],
 		responses: {
 			'201': {
@@ -1525,13 +1569,13 @@ class ApiRoutes {
 							properties: {
 								key: { type: 'string' },
 								name: { type: 'string' },
-								permissions: { type: 'string' }
-							}
-						}
-					}
-				}
-			}
-		}
+								permissions: { type: 'string' },
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async addApiKey(request: Request): Promise<Response> {
@@ -1540,11 +1584,23 @@ class ApiRoutes {
 		if (isNaN(id)) {
 			return new Response('Invalid thread ID', { status: 400 });
 		}
+
 		const data = await request.json();
-		const permissions = '[]';
+
+		// Use provided key name or generate a random one
+		const keyName = data.name || 'key_' + crypto.randomUUID().split('-')[0];
+
+		// Set default permissions to read-only for new keys
+		const defaultPermissions = JSON.stringify({
+			read: true,
+			write: false,
+			delete: false,
+		});
+
+		// Generate random API key
 		const randomKey = crypto.randomUUID();
-		const randomKeyName = 'key_' + randomKey.split('-')[0];
-		const key = await this.env.threadClient!.createAPIKey(id, randomKeyName, permissions);
+
+		const key = await this.env.threadClient!.createAPIKey(id, keyName, defaultPermissions);
 		return Response.json(key);
 	}
 
@@ -1560,16 +1616,16 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'string'
+					type: 'string',
 				},
-				description: 'API key to delete'
-			}
+				description: 'API key to delete',
+			},
 		],
 		responses: {
 			'200': {
-				description: 'API key deleted successfully'
-			}
-		}
+				description: 'API key deleted successfully',
+			},
+		},
 	})
 	@routeTrace
 	async deleteApiKey(request: Request): Promise<Response> {
@@ -1590,10 +1646,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'string'
+					type: 'string',
 				},
-				description: 'API key to update'
-			}
+				description: 'API key to update',
+			},
 		],
 		requestBody: {
 			content: {
@@ -1601,12 +1657,12 @@ class ApiRoutes {
 					schema: {
 						type: 'object',
 						properties: {
-							permissions: { type: 'string' }
+							permissions: { type: 'string' },
 						},
-						required: ['permissions']
-					}
-				}
-			}
+						required: ['permissions'],
+					},
+				},
+			},
 		},
 		responses: {
 			'200': {
@@ -1618,19 +1674,53 @@ class ApiRoutes {
 							properties: {
 								key: { type: 'string' },
 								name: { type: 'string' },
-								permissions: { type: 'string' }
-							}
-						}
-					}
-				}
-			}
-		}
+								permissions: { type: 'string' },
+							},
+						},
+					},
+				},
+			},
+		},
 	})
 	@routeTrace
 	async updateApiKey(request: Request): Promise<Response> {
-		const { apiKey } = (request as any).params;
-		const data = await request.json() as ApiKeyUpdateRequest;
-		const updated = await this.env.threadClient!.updateAPIKey(apiKey, data.permissions);
+		const { keyId } = (request as any).params;
+		const data = (await request.json()) as ApiKeyUpdateRequest;
+
+		// Ensure permissions is properly formatted as a JSON string containing read/write/delete boolean values
+		let permissionsJson: string;
+
+		// If permissions is already a string, validate it's proper JSON
+		if (typeof data.permissions === 'string') {
+			try {
+				const parsed = JSON.parse(data.permissions);
+				if (typeof parsed.read !== 'boolean' || typeof parsed.write !== 'boolean' || typeof parsed.delete !== 'boolean') {
+					// Add default values if missing
+					parsed.read = parsed.read ?? false;
+					parsed.write = parsed.write ?? false;
+					parsed.delete = parsed.delete ?? false;
+				}
+				permissionsJson = JSON.stringify(parsed);
+			} catch (e) {
+				// If invalid JSON, create default permissions
+				permissionsJson = JSON.stringify({ read: true, write: false, delete: false });
+			}
+		} else if (typeof data.permissions === 'object' && data.permissions !== null) {
+			// If it's already an object, ensure it has the required properties
+			const permissions = {
+				read: Boolean(data.permissions.read),
+				write: Boolean(data.permissions.write),
+				delete: Boolean(data.permissions.delete),
+			};
+			permissionsJson = JSON.stringify(permissions);
+		} else {
+			// Default to read-only permissions
+			permissionsJson = JSON.stringify({ read: true, write: false, delete: false });
+		}
+
+		console.log(permissionsJson);
+
+		const updated = await this.env.threadClient!.updateAPIKey(keyId, permissionsJson);
 		return Response.json(updated);
 	}
 
@@ -1648,22 +1738,22 @@ class ApiRoutes {
 						properties: {
 							file: {
 								type: 'string',
-								format: 'binary'
-							}
+								format: 'binary',
+							},
 						},
-						required: ['file']
-					}
-				}
-			}
+						required: ['file'],
+					},
+				},
+			},
 		},
 		responses: {
 			'201': {
-				description: 'File uploaded successfully'
+				description: 'File uploaded successfully',
 			},
 			'501': {
-				description: 'File upload not implemented'
-			}
-		}
+				description: 'File upload not implemented',
+			},
+		},
 	})
 	@routeTrace
 	async uploadFile(request: Request): Promise<Response> {
@@ -1682,10 +1772,10 @@ class ApiRoutes {
 				in: 'path',
 				required: true,
 				schema: {
-					type: 'string'
+					type: 'string',
 				},
-				description: 'ID of the file to retrieve'
-			}
+				description: 'ID of the file to retrieve',
+			},
 		],
 		responses: {
 			'200': {
@@ -1694,15 +1784,15 @@ class ApiRoutes {
 					'application/octet-stream': {
 						schema: {
 							type: 'string',
-							format: 'binary'
-						}
-					}
-				}
+							format: 'binary',
+						},
+					},
+				},
 			},
 			'404': {
-				description: 'File not found'
-			}
-		}
+				description: 'File not found',
+			},
+		},
 	})
 	@routeTrace
 	async getFile(request: Request): Promise<Response> {
@@ -1717,7 +1807,7 @@ class ApiRoutes {
 			headers: {
 				'Content-Type': file.httpMetadata?.contentType || 'application/octet-stream',
 				'Content-Length': file.size.toString(),
-				'ETag': file.httpEtag,
+				ETag: file.httpEtag,
 				'Cache-Control': 'public, max-age=31536000',
 			},
 		});
@@ -1787,7 +1877,7 @@ function buildRouter(env: Env): RouterType {
 	router.get('/api/thread/:threadId/apikeys', apiRoutes.getApiKeys.bind(apiRoutes));
 	router.post('/api/thread/:threadId/apikeys', apiRoutes.addApiKey.bind(apiRoutes));
 	router.delete('/api/apikeys/:apiKey', apiRoutes.deleteApiKey.bind(apiRoutes));
-	router.put('/api/apikeys/:apiKey', apiRoutes.updateApiKey.bind(apiRoutes));
+	router.put('/api/apikeys/:keyId', apiRoutes.updateApiKey.bind(apiRoutes));
 	router.get('/api/uploads/:fileId', apiRoutes.getFile.bind(apiRoutes));
 	router.post('/api/upload', apiRoutes.uploadFile.bind(apiRoutes));
 	router.all('*', () => new Response('Not Found', { status: 404 }));

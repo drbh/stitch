@@ -1,18 +1,67 @@
-import React, {
-  Ref,
-  Suspense,
-  forwardRef,
-  useState,
-  useImperativeHandle,
-  RefObject,
-} from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { Await, useFetcher } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { marked } from "marked";
 import JsonViewer from "./JsonViewer";
-import ActivityChart from "./ActivityChart";
 import PostComposer from "./PostComposer";
 import DeveloperCard from "./DeveloperCard";
+import { useThreadActions } from "./ThreadActionsContext";
+
+// In-memory image cache to prevent reloading images when switching tabs
+const imageCache = new Map<string, HTMLImageElement>();
+
+// Function to cache images
+const cacheImage = (src: string, img: HTMLImageElement): void => {
+  if (!imageCache.has(src)) {
+    // Store a cloned version of the image to maintain the cached reference
+    const clonedImg = new Image();
+    clonedImg.src = img.src;
+    imageCache.set(src, clonedImg);
+    console.log(`Cached image: ${src}`);
+  }
+};
+
+// Function to get image URL and use cache if available
+const getImageUrl = (post: any, thread: any): string => {
+  const imgSrc =
+    thread.location === "local"
+      ? post.image.startsWith("uploads/")
+        ? `./local/api/${post.image}`
+        : `./local/api/uploads/${post.image.split("/").pop()}`
+      : post.image.startsWith("uploads/")
+      ? `${thread.location}/api/${post.image}`
+      : `${thread.location}/api/uploads/${post.image.split("/").pop()}`;
+
+  // Check if this image is already cached
+  if (imageCache.has(imgSrc)) {
+    console.log(`Using cached image: ${imgSrc}`);
+  }
+
+  return imgSrc;
+};
+
+// Function to preload images from posts
+const preloadImages = (posts: any[], thread?: any): void => {
+  if (!thread) return;
+
+  // if no window object, return (for SSR) since the Image object is not available
+  if (typeof window === "undefined") return;
+
+  posts.forEach((post) => {
+    if (post.image) {
+      const imgSrc = getImageUrl(post, thread);
+
+      // Skip if already cached
+      if (imageCache.has(imgSrc)) return;
+
+      // Preload the image
+      const img = new Image();
+      img.src = imgSrc;
+      img.onload = () => cacheImage(imgSrc, img);
+      img.onerror = () => console.warn(`Failed to preload image: ${imgSrc}`);
+    }
+  });
+};
 
 // Types
 interface Post {
@@ -231,24 +280,22 @@ const ThreadPost = ({
         {post.image && (
           <div className="mt-2 mb-3">
             <img
-              src={`${
-                thread.location === "local"
-                  ? post.image.startsWith("uploads/")
-                    ? `./local/api/${post.image}`
-                    : `./local/api/uploads/${post.image.split("/").pop()}`
-                  : post.image.startsWith("uploads/")
-                  ? `${thread.location}/api/${post.image}`
-                  : `${thread.location}/api/uploads/${post.image
-                      .split("/")
-                      .pop()}`
-              }`}
+              src={getImageUrl(post, thread)}
               alt="Post attachment"
               className="rounded-md max-h-60 object-cover"
-              // TODO: add better error handling
-              // onError={(e) => {
-              //   e.currentTarget.src =
-              //     "https://via.placeholder.com/300x200?text=Image+Not+Found";
-              // }}
+              loading="eager"
+              decoding="async"
+              onLoad={(e) => {
+                // Add to in-memory cache after load
+                const img = e.currentTarget;
+                if (img.complete && img.naturalHeight !== 0) {
+                  cacheImage(img.src, img);
+                }
+              }}
+              onError={(e) => {
+                e.currentTarget.src =
+                  "https://via.placeholder.com/300x200?text=Image+Not+Found";
+              }}
             />
           </div>
         )}
@@ -357,73 +404,54 @@ const PostSkeletons = () => (
 );
 
 // Main Thread Post List Component
-const ThreadPostList = forwardRef(
-  (
-    {
-      thread,
-      activeThreadPosts,
-      isShareUrl,
-    }: {
-      thread: Thread;
-      activeThreadPosts: Promise<Post[]>;
-      isShareUrl: boolean;
-    },
-    ref
-  ) => {
-    const fetcher = useFetcher<{ success: boolean }>();
-    const [showJson, setShowJson] = useState(false);
-    const [showDevNote, setShowDevNote] = useState(false);
-    const [showActivityChart, setShowActivityChart] = useState(true);
+const ThreadPostList = ({
+  thread,
+  activeThreadPosts,
+  isShareUrl,
+  showJson,
+}: {
+  thread: Thread;
+  activeThreadPosts: Promise<Post[]>;
+  isShareUrl: boolean;
+  showJson: boolean;
+}) => {
+  const fetcher = useFetcher<{ success: boolean }>();
+  const { state } = useThreadActions();
+  const { showDevNote } = state;
 
-    const handlePostDelete = (e: React.MouseEvent, postId: number) => {
-      e.preventDefault();
-      if (window.confirm("Are you sure you want to delete this post?")) {
-        fetcher.submit(
-          {
-            intent: "deletePost",
-            postId,
-          },
-          { method: "delete" }
-        );
-      }
-    };
+  const handlePostDelete = (e: React.MouseEvent, postId: number) => {
+    e.preventDefault();
+    if (window.confirm("Are you sure you want to delete this post?")) {
+      fetcher.submit(
+        {
+          intent: "deletePost",
+          postId,
+        },
+        { method: "delete" }
+      );
+    }
+  };
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        toggleDevNote: () => {
-          const newValue = !showDevNote;
-          setShowDevNote(newValue);
-          return newValue;
-        },
-        toggleActivityChart: () => {
-          const newValue = !showActivityChart;
-          setShowActivityChart(newValue);
-          return newValue;
-        },
-        toggleShowJson: () => {
-          const newValue = !showJson;
-          setShowJson(newValue);
-          return newValue;
-        },
-        states: {
-          showJson,
-          showDevNote,
-          showActivityChart,
-        },
-      }),
-      [showJson, showDevNote, showActivityChart]
-    );
+  // Preload images when posts are loaded
+  useEffect(() => {
+    activeThreadPosts.then((posts) => {
+      // Preload all post images to avoid reloading when switching tabs
+      preloadImages(posts, thread);
+    });
+  }, [activeThreadPosts, thread]);
 
-    // Memoize components to avoid recreation on each render
-    const postCountDisplay = React.useMemo(() => (
+  // Memoize components to avoid recreation on each render
+  const postCountDisplay = React.useMemo(
+    () => (
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="text-sm text-gray-400">
             <Suspense fallback={<span>Loading...</span>}>
               <Await resolve={activeThreadPosts}>
                 {(posts) => {
-                  // Use a callback to avoid state updates during render
+                  // Trigger image preloading when posts are first displayed
+                  preloadImages(posts, thread);
+
                   return (
                     <span>
                       {posts.length} {posts.length === 1 ? "post" : "posts"}
@@ -435,73 +463,30 @@ const ThreadPostList = forwardRef(
           </div>
         </div>
       </div>
-    ), [activeThreadPosts]);
+    ),
+    [activeThreadPosts]
+  );
 
-    // Memoize developer card to prevent recreation
-    const devNoteDisplay = React.useMemo(() =>
-      showDevNote ? <DeveloperCard thread={thread} /> : null
-    , [showDevNote, thread]);
+  // Memoize developer card to prevent recreation
+  const devNoteDisplay = React.useMemo(
+    () => (showDevNote ? <DeveloperCard thread={thread} /> : null),
+    [showDevNote, thread]
+  );
 
-    return (
-      <div className="space-y-6 mt-4">
-        {postCountDisplay}
-        {devNoteDisplay}
+  return (
+    <div className="space-y-6 mt-4">
+      {postCountDisplay}
 
-        {/* Add Activity Chart (conditionally rendered and memoized) */}
-        {React.useMemo(() => {
-          if (!showActivityChart) return null;
+      <PostComposer
+        threadId={thread.id}
+        onPostSuccess={() => {
+          console.log("Post success");
+        }}
+      />
 
-          return (
-            <Suspense
-              fallback={
-                <div className="bg-zinc-900 rounded-md border border-border p-4 mb-6 animate-pulse">
-                  <div className="h-5 bg-zinc-800 rounded w-1/3 mb-4"></div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div
-                        key={i}
-                        className="bg-zinc-800 rounded-md p-3 border border-border"
-                      >
-                        <div className="h-2 bg-surface-tertiary rounded w-1/2 mb-2"></div>
-                        <div className="h-5 bg-surface-tertiary rounded w-1/3"></div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1 mb-4">
-                    {Array(35)
-                      .fill(0)
-                      .map((_, i) => (
-                        <div
-                          key={i}
-                          className="w-3 h-3 bg-zinc-800 rounded-sm"
-                        ></div>
-                      ))}
-                  </div>
-                </div>
-              }
-            >
-              <Await resolve={activeThreadPosts}>
-                {(posts) => (
-                  <ActivityChart
-                    posts={posts}
-                    weeksToShow={26}
-                    colorTheme="blue"
-                  />
-                )}
-              </Await>
-            </Suspense>
-          );
-        }, [showActivityChart, activeThreadPosts])}
-
-        <PostComposer
-          threadId={thread.id}
-          onPostSuccess={() => {
-            console.log("Post success");
-          }}
-        />
-
-        {/* Memoize the post list to prevent unnecessary re-renders */}
-        {React.useMemo(() => (
+      {/* Memoize the post list to prevent unnecessary re-renders */}
+      {React.useMemo(
+        () => (
           <div className="space-y-4">
             <Suspense fallback={<PostSkeletons />}>
               <h2 className="text-xl text-white">Posts</h2>
@@ -550,10 +535,11 @@ const ThreadPostList = forwardRef(
               </Await>
             </Suspense>
           </div>
-        ), [activeThreadPosts, thread, isShareUrl, showJson, handlePostDelete])}
-      </div>
-    );
-  }
-);
+        ),
+        [activeThreadPosts, thread, isShareUrl, showJson, handlePostDelete]
+      )}
+    </div>
+  );
+};
 
 export default ThreadPostList;

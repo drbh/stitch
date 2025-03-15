@@ -1,28 +1,14 @@
-import React, { forwardRef } from "react";
+import React from "react";
+import { useThreadActions } from "./ThreadActionsContext";
 
-const ThreadActionsMenu = forwardRef(({
-  setIsOpen,
-  stateMirror,
-  setStateMirror
-}: {
-  setIsOpen: (value: boolean) => void;
-  stateMirror: any;
-  setStateMirror: React.Dispatch<React.SetStateAction<any>>;
-}, ref) => {
+const ThreadActionsMenu = ({ setIsOpen }: { setIsOpen: (value: boolean) => void }) => {
+  const { state, toggleShowJson, toggleDevNote, toggleActivityChart } = useThreadActions();
+
   return (
     <div className="absolute right-0 mt-1 bg-surface-secondary border border-border rounded-md shadow-lg py-1 w-40 z-10">
-
       <button
         className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
-        onClick={() => {
-          if (ref && ref.current && ref.current.toggleShowJson) {
-            const currStatus = ref.current.toggleShowJson();
-            setStateMirror((prev) => ({
-              ...prev,
-              showJson: currStatus,
-            }));
-          }
-        }}
+        onClick={toggleShowJson}
       >
         <svg
           className="w-3 h-3 mr-1"
@@ -31,7 +17,7 @@ const ThreadActionsMenu = forwardRef(({
           strokeWidth="2"
         >
           <circle
-            fill={stateMirror.showJson ? "#000" : "#fff"}
+            fill={state.showJson ? "#000" : "#fff"}
             cx="12"
             cy="12"
             r="10"
@@ -41,15 +27,7 @@ const ThreadActionsMenu = forwardRef(({
       </button>
       <button
         className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
-        onClick={() => {
-          if (ref && ref.current && ref.current.toggleDevNote) {
-            const currStatus = ref.current.toggleDevNote();
-            setStateMirror((prev) => ({
-              ...prev,
-              showDevNote: currStatus,
-            }));
-          }
-        }}
+        onClick={toggleDevNote}
       >
         <svg
           className="w-3 h-3 mr-1"
@@ -58,7 +36,7 @@ const ThreadActionsMenu = forwardRef(({
           strokeWidth="2"
         >
           <circle
-            fill={stateMirror.showDevNote ? "#000" : "#fff"}
+            fill={state.showDevNote ? "#000" : "#fff"}
             cx="12"
             cy="12"
             r="10"
@@ -68,15 +46,7 @@ const ThreadActionsMenu = forwardRef(({
       </button>
       <button
         className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
-        onClick={() => {
-          if (ref && ref.current && ref.current.toggleActivityChart) {
-            const currStatus = ref.current.toggleActivityChart();
-            setStateMirror((prev) => ({
-              ...prev,
-              showActivityChart: currStatus,
-            }));
-          }
-        }}
+        onClick={toggleActivityChart}
       >
         <svg
           className="w-3 h-3 mr-1"
@@ -86,9 +56,7 @@ const ThreadActionsMenu = forwardRef(({
           strokeWidth="2"
         >
           <circle
-            fill={
-              stateMirror.showActivityChart ? "#000" : "#fff"
-            }
+            fill={state.showActivityChart ? "#000" : "#fff"}
             cx="12"
             cy="12"
             r="10"
@@ -101,11 +69,7 @@ const ThreadActionsMenu = forwardRef(({
       <button
         className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
         onClick={() => {
-          if (
-            window.confirm(
-              "Are you sure you want to delete this thread?"
-            )
-          ) {
+          if (window.confirm("Are you sure you want to delete this thread?")) {
             // onDelete(thread);
           }
           // setIsOpen(false);
@@ -128,6 +92,6 @@ const ThreadActionsMenu = forwardRef(({
       </button>
     </div>
   );
-});
+};
 
 export default ThreadActionsMenu;

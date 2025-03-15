@@ -44,7 +44,8 @@ const _action = async ({ request, context }) => {
     "deletePost",
     "shareUrlCreate",
     "createApiKey",
-    "deleteApiKey",
+    "updateApiKey",
+    "removeApiKey",
     "getApiKeys",
   ];
 
@@ -613,8 +614,7 @@ const _action = async ({ request, context }) => {
         "Content-Type": "application/json",
       },
     });
-  }
-  if (intent === "deletePost") {
+  } else if (intent === "deletePost") {
     const postId = String(formData.get("postId"));
     const server = String(new URL(request.url).searchParams.get("s"));
     const threadId = String(new URL(request.url).searchParams.get("t"));
@@ -686,15 +686,61 @@ const _action = async ({ request, context }) => {
       return new Response(null, { status: 400 });
     }
 
+    // Default to read-only permissions for new keys
     const _newApiKey = await context.storageClients[server].createAPIKey(
       Number(threadId),
       name,
       {
         read: true,
-        write: true,
-        delete: true,
+        write: false,
+        delete: false,
       }
     );
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "updateApiKey") {
+    const apiKey = String(formData.get("apiKey"));
+    const keyId = String(formData.get("keyId"));
+    const keyName = String(formData.get("keyName"));
+    const permissionsStr = String(formData.get("permissions"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+    if (!apiKey) {
+      return new Response(null, { status: 400 });
+    }
+
+    // Parse permissions from string
+    let permissions;
+    try {
+      permissions = JSON.parse(permissionsStr);
+    } catch (e) {
+      // Default to read-only if parsing fails
+      permissions = { read: true, write: false, delete: false };
+    }
+
+    // Update the API key
+    await context.storageClients[server].updateAPIKey(keyId, permissions);
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "removeApiKey") {
+    const id = String(formData.get("id"));
+    const server = String(new URL(request.url).searchParams.get("s"));
+
+    if (!id) {
+      return new Response(null, { status: 400 });
+    }
+
+    // Delete the API key
+    await context.storageClients[server].deleteAPIKey(id);
 
     const data: { success: boolean } = { success: true };
     return new Response(JSON.stringify(data), {

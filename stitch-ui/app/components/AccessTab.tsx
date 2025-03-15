@@ -8,36 +8,29 @@ export default function AccessTab({
   handleApiKeySubmit,
   activeThreadApiKeys,
   updateAPIKey,
-  removeAPIKey
+  removeAPIKey,
 }: {
-  handleApiKeySubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  handleApiKeySubmit: () => void;
   activeThreadApiKeys: Promise<APIKey[]>;
   updateAPIKey: (updated: APIKey) => void;
   removeAPIKey: (id: string) => void;
 }) {
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-content-accent">
-        Access
-      </h2>
-
-      <div className="bg-surface-secondary rounded-lg shadow-lg p-6">
-        <h3 className="text-lg font-semibold text-content-accent mb-2">
-          Add API Key
-        </h3>
-        <form className="space-y-4" onSubmit={handleApiKeySubmit}>
-          <input
-            type="text"
-            placeholder="API Key Name"
-            className="w-full px-4 py-2 bg-surface-tertiary border border-border rounded-lg focus:ring-0 focus:ring-border-focus focus:border-transparent"
-          />
-          <button
-            type="submit"
-            className="border border-border px-4 py-2 rounded bg-green-600 text-content-accent hover:bg-green-700"
-          >
-            Create New API Key
-          </button>
-        </form>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-content-accent">API Keys</h2>
+        <button
+          onClick={(e) => {
+            if (
+              window.confirm("Are you sure you want to generate a new API key?")
+            ) {
+              handleApiKeySubmit();
+            }
+          }}
+          className="px-4 py-2 bg-surface-primary border border-border hover:bg-surface-secondary active:bg-interactive-active text-white font-medium rounded-lg transition-colors"
+        >
+          Generate Key
+        </button>
       </div>
 
       <div>
@@ -61,10 +54,10 @@ export default function AccessTab({
                       id: key.id,
                       key_name: key.key_name,
                       api_key: key.api_key,
-                      permissions: {
+                      permissions: JSON.parse(key.permissions) || {
                         read: true,
-                        write: true,
-                        delete: true,
+                        write: false,
+                        delete: false,
                       },
                     }}
                     onUpdate={updateAPIKey}

@@ -657,11 +657,11 @@ export class D1ThreadClient extends ThreadClient {
     let objectName = null;
 
     // Check if this is a multimedia file that needs special handling
-    const isMultimedia = data.type.startsWith('audio/') ||
-                          data.type.startsWith('video/') ||
-                          data.type.startsWith('image/') ||
-                          (data.content.length > 100000 && data.file); // Large content
-
+    const isMultimedia =
+      data.type.startsWith("audio/") ||
+      data.type.startsWith("video/") ||
+      data.type.startsWith("image/") ||
+      (data.content.length > 100000 && data.file); // Large content
 
     if (isMultimedia && data.file) {
       // Store the file in the bucket
@@ -671,10 +671,10 @@ export class D1ThreadClient extends ThreadClient {
       let fname = data.file.name;
 
       // update the fname to remove spaces and any special characters
-      const fnameParts = fname.split('.');
+      const fnameParts = fname.split(".");
       const ext = fnameParts[fnameParts.length - 1];
-      const fnameNoExt = fnameParts.slice(0, -1).join('');
-      const fnameNoSpecialChars = fnameNoExt.replace(/[^a-zA-Z0-9]/g, '');
+      const fnameNoExt = fnameParts.slice(0, -1).join("");
+      const fnameNoSpecialChars = fnameNoExt.replace(/[^a-zA-Z0-9]/g, "");
       fname = `${fnameNoSpecialChars}.${ext}`;
 
       objectName = `uploads/${threadId}-${Date.now()}-${fname}`;
@@ -807,9 +807,9 @@ export class D1ThreadClient extends ThreadClient {
    * Retrieve an API key by its key.
    */
   @traceMethod
-  async getAPIKey(key: string): Promise<APIKey> {
-    const stmt = this.d1.prepare("SELECT * FROM api_keys WHERE api_key = ?");
-    const apiKey = (await stmt.bind(key).first()) as APIKey | undefined;
+  async getAPIKey(keyId: string): Promise<APIKey> {
+    const stmt = this.d1.prepare("SELECT * FROM api_keys WHERE id = ?");
+    const apiKey = (await stmt.bind(keyId).first()) as APIKey | undefined;
     if (!apiKey) {
       throw new Error("API key not found");
     }
@@ -876,19 +876,28 @@ export class D1ThreadClient extends ThreadClient {
    * Update an existing API key.
    */
   @traceMethod
-  async updateAPIKey(key: string, permissions: any): Promise<APIKey> {
+  async updateAPIKey(keyId: string, permissions: any): Promise<APIKey> {
+    console.log("D1 updateAPIKey", keyId, permissions);
     const stmt = this.d1.prepare(`
       UPDATE api_keys
       SET permissions = ?
-      WHERE api_key = ?
+      WHERE id = ?
     `);
-    const result = await stmt.bind(JSON.stringify(permissions), key).run();
 
+    // if permissions is an object, stringify it
+    const permissionsString =
+      typeof permissions === "object"
+        ? JSON.stringify(permissions)
+        : permissions;
+
+    const result = await stmt.bind(permissionsString, keyId).run();
+
+    console.log("updateAPIKey", keyId, permissions);
     if (!result.success) {
       throw new Error("API key update failed");
     }
 
-    const apiKey = await this.getAPIKey(key);
+    const apiKey = await this.getAPIKey(keyId);
     if (!apiKey) {
       throw new Error("Error retrieving API key after update");
     }
@@ -900,9 +909,7 @@ export class D1ThreadClient extends ThreadClient {
    */
   @traceMethod
   async deleteAPIKey(key: string): Promise<void> {
-    await this.d1
-      .prepare("DELETE FROM api_keys WHERE api_key = ?")
-      .bind(key)
-      .run();
+    console.log("deleteAPIKey", key);
+    await this.d1.prepare("DELETE FROM api_keys WHERE id = ?").bind(key).run();
   }
 }
