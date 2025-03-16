@@ -392,7 +392,7 @@ function SettingsModal({
         className="absolute inset-0 bg-black opacity-80"
         onClick={onClose}
       ></div>
-      <div className="min-h-[80vh] bg-surface-secondary border border-border p-6 rounded-lg w-full max-w-4xl flex">
+      <div className="z-[1000] min-h-[80vh] bg-surface-secondary border border-border p-6 rounded-lg w-full max-w-4xl flex">
         {/* Sidebar */}
         <div className="w-1/4 border-r border-border pr-4">
           <h3 className="text-lg font-semibold text-content-accent mb-4 ">

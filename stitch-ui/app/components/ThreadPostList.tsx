@@ -366,6 +366,7 @@ const ThreadPost = ({
                     style={{
                       height: "300px",
                       width: "300px",
+                      zIndex: 0,
                     }}
                   />
                 </div>
