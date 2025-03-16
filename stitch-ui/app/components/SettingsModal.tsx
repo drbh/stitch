@@ -2,6 +2,7 @@ import { useState, useEffect, Suspense } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useFetcher, Await } from "@remix-run/react";
 import { BackendConnection, APIKey } from "~/clients/types";
+import { useTheme } from "./ThemeContext";
 
 interface BackendConnectionItemProps {
   connection: BackendConnection;
@@ -9,6 +10,136 @@ interface BackendConnectionItemProps {
   onRemove: (id: string) => void;
   onCancel: () => void;
   isEditingOpen?: boolean;
+}
+
+function AppearanceSettings() {
+  const { theme, toggleTheme, accentColor, setAccentColor } = useTheme();
+
+  // Predefined accent color options
+  const accentColorOptions = [
+    { name: "Blue-Purple", value: "#382c83" },
+    { name: "Deep Blue", value: "#0369a1" },
+    { name: "Teal", value: "#0d9488" },
+    { name: "Green", value: "#16a34a" },
+    { name: "Purple", value: "#7e22ce" },
+    { name: "Red", value: "#dc2626" },
+    { name: "Orange", value: "#ea580c" },
+  ];
+
+  return (
+    <div className="border border-border p-4 rounded-lg mb-4">
+      <div className="mb-6">
+        <label className="block text-sm font-medium mb-2">Theme</label>
+        <div className="flex items-center space-x-4">
+          <div
+            className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer transition-colors ${
+              theme === "dark"
+                ? "bg-blue-600 text-content-accent"
+                : "bg-interactive hover:bg-interactive-hover"
+            }`}
+            onClick={() => theme !== "dark" && toggleTheme()}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <span>Dark</span>
+          </div>
+
+          <div
+            className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer transition-colors ${
+              theme === "light"
+                ? "bg-blue-600 text-content-accent"
+                : "bg-interactive hover:bg-interactive-hover"
+            }`}
+            onClick={() => theme !== "light" && toggleTheme()}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <span>Light</span>
+          </div>
+        </div>
+        <p className="mt-2 text-sm text-content-tertiary">
+          You can also toggle the theme using the button in the top navigation
+          bar.
+        </p>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium mb-2">Accent Color</label>
+        <div className="grid grid-cols-4 gap-3 mb-3">
+          {accentColorOptions.map((option) => (
+            <div
+              key={option.value}
+              className={`flex flex-col items-center cursor-pointer`}
+              onClick={() => setAccentColor(option.value)}
+            >
+              <div
+                className={`w-10 h-10 rounded-full mb-1 border-2 ${
+                  accentColor === option.value
+                    ? "border-content-primary"
+                    : "border-transparent"
+                }`}
+                style={{ backgroundColor: option.value }}
+              />
+              <span className="text-xs">{option.name}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          <label className="block text-sm font-medium mb-2">Custom Color</label>
+          <div className="flex items-center space-x-3">
+            <input
+              type="color"
+              value={accentColor}
+              onChange={(e) => setAccentColor(e.target.value)}
+              className="w-10 h-10 rounded cursor-pointer"
+            />
+            <input
+              type="text"
+              value={accentColor}
+              onChange={(e) => setAccentColor(e.target.value)}
+              className="bg-surface-tertiary border border-border rounded p-2 w-28"
+              placeholder="#000000"
+            />
+          </div>
+          <p className="mt-2 text-sm text-content-tertiary">
+            This color will be used for buttons, selected items, and interactive
+            elements.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function BackendConnectionItem({
@@ -150,7 +281,7 @@ function BackendConnectionItem({
 //
 // Settings Modal with Sidebar for Toggling Views
 //
-type SettingsView = "backends";
+type SettingsView = "backends" | "appearance";
 
 function SettingsModal({
   backendMetadata,
@@ -261,7 +392,7 @@ function SettingsModal({
         className="absolute inset-0 bg-black opacity-80"
         onClick={onClose}
       ></div>
-      <div className="min-h-[80vh] bg-surface-secondary border border-border p-6 rounded-lg shadow-lg z-10 w-full max-w-4xl flex">
+      <div className="min-h-[80vh] bg-surface-secondary border border-border p-6 rounded-lg w-full max-w-4xl flex">
         {/* Sidebar */}
         <div className="w-1/4 border-r border-border pr-4">
           <h3 className="text-lg font-semibold text-content-accent mb-4 ">
@@ -275,10 +406,23 @@ function SettingsModal({
                 className={`w-full text-left px-2 py-1 rounded ${
                   selectedView === "backends"
                     ? "bg-blue-600 text-content-accent"
-                    : "hover:bg-gray-200"
+                    : "hover:bg-interactive-hover"
                 }`}
               >
                 Backends
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => setSelectedView("appearance")}
+                className={`w-full text-left px-2 py-1 rounded ${
+                  selectedView === "appearance"
+                    ? "bg-blue-600 text-content-accent"
+                    : "hover:bg-interactive-hover"
+                }`}
+              >
+                Appearance
               </button>
             </li>
           </ul>
@@ -310,10 +454,19 @@ function SettingsModal({
                 <button
                   type="button"
                   onClick={addBackend}
-                  className="px-4 py-2 rounded bg-green-600 text-content-accent hover:bg-green-700"
+                  className="px-4 py-2 rounded bg-blue-600 text-content-accent hover:bg-blue-700"
                 >
                   Add Backend Connection
                 </button>
+              </div>
+            )}
+
+            {selectedView === "appearance" && (
+              <div>
+                <h2 className="text-lg font-semibold text-content-accent mb-4">
+                  Appearance Settings
+                </h2>
+                <AppearanceSettings />
               </div>
             )}
             <div className="flex justify-end space-x-3 pt-4">

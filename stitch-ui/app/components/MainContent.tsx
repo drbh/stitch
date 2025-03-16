@@ -74,7 +74,12 @@ function MainContentInner({
 
   // Create share URL
   const handleShareUrlCreate = async () => {
-    if (activeThread && activeThread.share_pubkey) return;
+    if (activeThread && activeThread.share_pubkey) {
+      setShareUrl(
+        `${window.location.origin}/?t=${activeThread.id}&s=${activeThread.location}&token=${activeThread.share_pubkey}`
+      );
+      return;
+    }
 
     const { hash, preimage } = await creatEphemeralPubKeySignature();
 
@@ -184,6 +189,10 @@ function MainContentInner({
       const currentUrl = window.location.origin;
       const shareUrl = `${currentUrl}/?t=${activeThread.id}&s=${activeThread.location}&token=${activeThread.share_pubkey}`;
       setUrl(shareUrl);
+
+      if (activeThread.share_pubkey) {
+        setShareUrl(shareUrl);
+      }
     }
 
     return () => {
@@ -225,6 +234,7 @@ function MainContentInner({
             counts={counts}
             isShareUrl={isShareUrl}
             handleShareUrlCreate={handleShareUrlCreate}
+            shareUrl={shareUrl || "no url"}
           />
 
           {showDevNote && <DeveloperCard thread={activeThread} />}

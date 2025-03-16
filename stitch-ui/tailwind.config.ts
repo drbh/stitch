@@ -25,49 +25,37 @@ export default {
     colors: {
       // Main background colors
       surface: {
-        primary: "#121212",
-        secondary: "#1E1E1E",
-        tertiary: "#2D2D2D",
+        primary: "var(--surface-primary)",
+        secondary: "var(--surface-secondary)",
+        tertiary: "var(--surface-tertiary)",
       },
       // Text colors
       content: {
-        primary: "#FFFFFF",
-        secondary: "#A0A0A0",
-        tertiary: "#707070",
-        accent: "#D4D4D4",
+        primary: "var(--content-primary)",
+        secondary: "var(--content-secondary)",
+        tertiary: "var(--content-tertiary)",
+        accent: "var(--content-accent)",
       },
       // Border colors
       border: {
-        DEFAULT: "#404040",
-        focus: "#666666",
-        interactive: "#404040",
+        DEFAULT: "var(--border)",
+        focus: "var(--border-focus)",
+        interactive: "var(--border-interactive)",
         transparent: "transparent",
       },
       // Interactive element colors
       interactive: {
-        DEFAULT: "#404040",
-        hover: "#4A4A4A",
-        active: "#505050",
+        DEFAULT: "var(--interactive)",
+        hover: "var(--interactive-hover)",
+        active: "var(--interactive-active)",
       },
-      // TODO: remove these colors. only used for debugging
+      // Accent colors
       blue: {
         900: "#0c4a6e",
         800: "#075985",
-        // 700: "#0369a1",
-        // 600: "#0284c7",
-
-        //  TESTs
-        // 600: "#03283c",
-
-        700: "#48299d",
-        600: "#382c83",
-        500: "#19143c",
-      },
-      green: {
-        900: "#065f46",
-        800: "#047857",
-        700: "#059669",
-        600: "#10b981",
+        700: "var(--accent-color-dark)", // Darker variant of accent color
+        600: "var(--accent-color)", // Primary accent color
+        500: "var(--accent-color-light)", // Lighter variant of accent color
       },
       purple: {
         900: "#4c1d95",

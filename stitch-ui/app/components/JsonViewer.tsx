@@ -63,7 +63,7 @@ const JsonViewer: React.FC<JsonViewerProps> = ({
             }}
             className={`text-xs px-2 py-1 rounded flex items-center transition-colors ${
               copied
-                ? "bg-green-700 text-white"
+                ? "bg-blue-700 text-white"
                 : "bg-surface-tertiary hover:bg-zinc-600 text-gray-300"
             }`}
           >

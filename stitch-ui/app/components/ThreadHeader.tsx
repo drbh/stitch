@@ -1,6 +1,7 @@
 import React from "react";
 import type { Thread } from "~/clients/types";
 import ThreadActionsMenu from "./ThreadActionsMenu";
+import { formatDistanceToNow } from "date-fns";
 
 // Define tab types for better type safety
 type TabType = "posts" | "documents" | "webhooks" | "access" | "shareUrl";
@@ -13,6 +14,51 @@ type CountsType = {
   access: number;
 };
 
+// Format timestamp for full date display in tooltip
+const getFormattedDate = (timestamp: string) => {
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString("en-US", {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+    });
+  } catch (e) {
+    return timestamp;
+  }
+};
+
+// Parse the timestamp and format as relative time
+const getRelativeTime = (timestamp: string) => {
+  try {
+    const date = new Date(timestamp);
+    return formatDistanceToNow(date, { addSuffix: true });
+  } catch (e) {
+    return timestamp; // Fallback to original format if parsing fails
+  }
+};
+
+// Tooltip Component
+const Tooltip = ({
+  content,
+  children,
+}: {
+  content: string;
+  children: React.ReactNode;
+}) => {
+  return (
+    <div className="relative group">
+      <div className="absolute top-full mt-1 px-2 py-1 bg-surface-primary text-xs text-gray-300 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity whitespace-nowrap z-10 border border-border">
+        {content}
+      </div>
+      {children}
+    </div>
+  );
+};
+
 const ThreadHeader = ({
   activeThread,
   isOpen,
@@ -22,6 +68,7 @@ const ThreadHeader = ({
   counts,
   isShareUrl,
   handleShareUrlCreate,
+  shareUrl,
 }: {
   activeThread: Thread;
   isOpen: boolean;
@@ -31,24 +78,56 @@ const ThreadHeader = ({
   counts: CountsType;
   isShareUrl: boolean;
   handleShareUrlCreate: () => void;
+  shareUrl: string;
 }) => {
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-content-accent">
-          {activeThread.title}
-        </h2>
+        {activeThread && activeThread.title ? (
+          <>
+            <div className="flex flex-col space-y-1">
+              <h2 className="text-2xl font-bold text-content-accent">
+                {activeThread.title}
+              </h2>
+
+              {shareUrl && shareUrl.length > 10 && (
+                <Tooltip content={`${shareUrl}`}>
+                  <a
+                    href={shareUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline text-sm"
+                  >
+                    {shareUrl.substring(0, 20)} ..{" "}
+                    {shareUrl.substring(shareUrl.length - 20)}
+                  </a>
+                </Tooltip>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="animate-pulse space-y-4">
+            <div className="bg-surface-primary mb-2 rounded-md min-w-64">
+              <div className="h-4 bg-surface-tertiary rounded mb-2 w-full"></div>
+              <div className="h-4 bg-surface-tertiary rounded mb-2 w-5/6"></div>
+              <div className="h-4 bg-surface-tertiary rounded w-4/6"></div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center space-x-2">
-          <div className="px-3 py-2 border border-border rounded-lg text-xs text-content-accent">
-            {isShareUrl ? "Public Link Created" : "Private"}
+          <div className="px-3 py-1 border border-border rounded-lg text-xs text-content-accent">
+            {shareUrl && shareUrl.length > 10
+              ? "Public Link Created"
+              : "Private"}
           </div>
 
           <div
-            className="relative thread-actions-menu"
+            className="relative thread-actions-menu justify-end"
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              className="p-1 text-gray-400 hover:text-white rounded-full transition-colors"
+              className="text-gray-400 hover:text-white rounded-full transition-colors"
               onClick={() => setIsOpen(!isOpen)}
               title="Thread actions"
             >
@@ -73,10 +152,16 @@ const ThreadHeader = ({
       </div>
 
       <div className="flex justify-between items-center">
-        <p className="text-content-secondary">{activeThread.last_activity}</p>
+        <div className="text-content-secondary">
+          <Tooltip content={getFormattedDate(activeThread.last_activity)}>
+            <div className="text-gray-400 text-xs">
+              {getRelativeTime(activeThread.last_activity)}
+            </div>
+          </Tooltip>
+        </div>
 
         {/* Tab indicators */}
-        <div className="flex space-x-6">
+        <div className="flex space-x-6 pr-1">
           {/* Posts with counter */}
           <button
             className={`flex items-center space-x-1 transition-colors relative ${
@@ -226,7 +311,6 @@ const ThreadHeader = ({
             }`}
             title={isShareUrl ? "View Share URL" : "Create Share URL"}
             onClick={() => {
-              handleTabChange("shareUrl");
               if (!isShareUrl) {
                 handleShareUrlCreate();
               }

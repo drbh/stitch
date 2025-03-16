@@ -42,10 +42,10 @@ const DayCell = ({ count, maxCount, date, colorTheme = "blue" }) => {
     ],
     green: [
       "bg-surface-secondary", // Empty
-      "bg-green-900",
-      "bg-green-800",
-      "bg-green-700",
-      "bg-green-600",
+      "bg-blue-900",
+      "bg-blue-800",
+      "bg-blue-700",
+      "bg-blue-600",
     ],
     purple: [
       "bg-surface-secondary", // Empty
@@ -90,10 +90,10 @@ const ActivityLegend = ({ maxCount, colorTheme = "blue" }) => {
     ],
     green: [
       "bg-surface-secondary", // Empty
-      "bg-green-900",
-      "bg-green-800",
-      "bg-green-700",
-      "bg-green-600",
+      "bg-blue-900",
+      "bg-blue-800",
+      "bg-blue-700",
+      "bg-blue-600",
     ],
     purple: [
       "bg-surface-secondary", // Empty

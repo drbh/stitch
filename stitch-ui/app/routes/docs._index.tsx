@@ -15,7 +15,7 @@ function Topbar({
   toggleOpenMenu?: (setIsOpen: (isOpen: boolean) => void) => void;
 }) {
   return (
-    <header className="h-16 bg-surface-secondary border-b border-border shadow-lg flex justify-between items-center px-6">
+    <header className="h-16 bg-surface-secondary border-b border-border  flex justify-between items-center px-6">
       <div className="flex items-center gap-2">
         {toggleOpenMenu && (
           <button
@@ -167,7 +167,7 @@ function Topbar({
 
 const NoteCard = ({ children }) => {
   return (
-    <div className="bg-blue-50 py-4 my-4 rounded-r-md shadow-sm">
+    <div className="bg-blue-50 py-4 my-4 rounded-r-md">
       <div className="flex items-center mb-2">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -324,7 +324,7 @@ export default function MarkdownDoc() {
               </h1>
             </header>
 
-            <article className="markdown-content bg-surface-secondary p-8 rounded-xl shadow-lg">
+            <article className="markdown-content bg-surface-secondary p-8 rounded-xl">
               <div dangerouslySetInnerHTML={{ __html: html }} />
             </article>
           </div>

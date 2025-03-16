@@ -6,7 +6,7 @@ const ApiEndpoint = ({ method, description, endpoint }) => {
     <div className="flex flex-col">
       <div className="flex items-center mb-1">
         {method.includes("GET") && (
-          <span className="text-xs font-medium text-green-500 mr-2">GET</span>
+          <span className="text-xs font-medium text-blue-500 mr-2">GET</span>
         )}
         {method.includes("POST") && (
           <span className="text-xs font-medium text-blue-400 mr-2">POST</span>
@@ -78,7 +78,7 @@ const DeveloperCard = ({ thread }) => {
           <button
             className={`text-xs ${
               copied
-                ? "bg-green-700 text-white"
+                ? "bg-blue-700 text-white"
                 : "bg-surface-tertiary hover:bg-zinc-600 text-gray-300"
             } px-3 py-1 rounded flex items-center transition-colors`}
             onClick={() => handleCopy(basePostCommand)}

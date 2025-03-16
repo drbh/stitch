@@ -226,7 +226,7 @@ export default function DocumentsTab({
       {!isShareUrl && (
         <div
           ref={dragAreaRef}
-          className={`bg-surface-primary rounded-lg shadow-lg p-6 ${
+          className={`bg-surface-primary rounded-lg p-6 ${
             isDragging
               ? "border border-dashed border-blue-600"
               : "border border-border"
@@ -241,7 +241,7 @@ export default function DocumentsTab({
 
           {/* File selector area */}
           {!selectedFile && (
-            <div className="flex flex-col items-center justify-center p-8 bg-surface-secondary rounded-lg border border-dashed border-border mb-4">
+            <div className="flex flex-col items-center justify-center p-8 bg-surface-primary rounded-lg border border-dashed border-border mb-4">
               <div className="text-gray-400 mb-4">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"

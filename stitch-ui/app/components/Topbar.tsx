@@ -1,4 +1,5 @@
-import React, { useState, useEffect, Suspense, useRef } from "react";
+import React from "react";
+import ThemeToggle from "./ThemeToggle";
 
 function Topbar({
   openSettings,
@@ -8,12 +9,12 @@ function Topbar({
   toggleOpenMenu?: (setIsOpen: (isOpen: boolean) => void) => void;
 }) {
   return (
-    <header className="h-16 bg-surface-secondary border-b border-border shadow-lg flex justify-between items-center px-6">
+    <header className="h-16 bg-surface-primary border-b border-border flex justify-between items-center px-6">
       <div className="flex items-center gap-2">
         {toggleOpenMenu && (
           <button
             onClick={() => toggleOpenMenu((isOpen) => !isOpen)}
-            className="lg:hidden mr-2 p-1 rounded hover:bg-gray-100 transition-colors"
+            className="lg:hidden mr-2 p-1 rounded hover:bg-interactive-hover transition-colors"
             aria-label="Toggle menu"
           >
             <svg
@@ -110,7 +111,7 @@ function Topbar({
             <h1 className="text-xl font-bold text-content-accent leading-none">
               Stitch
             </h1>
-            <span className="text-xs text-gray-500 opacity-50">
+            <span className="text-xs text-content-tertiary opacity-50">
               by stitch.sh
             </span>
           </div>
@@ -118,6 +119,7 @@ function Topbar({
       </div>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
         <button
           onClick={() => {
             window.open(
@@ -126,7 +128,7 @@ function Topbar({
               "noopener,noreferrer"
             );
           }}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-content-accent hover:bg-gray-100 rounded transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-content-accent hover:bg-interactive-hover rounded transition-colors"
           aria-label="GitHub"
         >
           <span>Star us on GitHub</span>

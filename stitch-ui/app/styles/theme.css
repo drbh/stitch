@@ -1,0 +1,67 @@
+:root {
+  /* Default variables (dark theme) */
+  --surface-primary: #121212;
+  --surface-secondary: #1E1E1E;
+  --surface-tertiary: #2D2D2D;
+
+  --content-primary: #FFFFFF;
+  --content-secondary: #A0A0A0;
+  --content-tertiary: #707070;
+  --content-accent: #D4D4D4;
+
+  --border: #404040;
+  --border-focus: #666666;
+  --border-interactive: #404040;
+
+  --interactive: #404040;
+  --interactive-hover: #4A4A4A;
+  --interactive-active: #505050;
+
+  /* Accent colors - default value is set via JS */
+  --accent-color: #382c83;
+  --accent-color-light: #382c83CC;
+  --accent-color-dark: #382c83DD;
+
+  /* Add smooth transitions for all theme changes */
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Light theme */
+.light-theme {
+  --surface-primary: #FFFFFF;
+  --surface-secondary: #F5F5F5;
+  --surface-tertiary: #EEEEEE;
+
+  --content-primary: #121212;
+  --content-secondary: #555555;
+  --content-tertiary: #777777;
+  --content-accent: #333333;
+
+  --border: #DDDDDD;
+  --border-focus: #AAAAAA;
+  --border-interactive: #CCCCCC;
+
+  --interactive: #E8E8E8;
+  --interactive-hover: #DDDDDD;
+  --interactive-active: #CCCCCC;
+}
+
+/* Dark theme (explicit for clarity) */
+.dark-theme {
+  --surface-primary: #121212;
+  --surface-secondary: #1E1E1E;
+  --surface-tertiary: #2D2D2D;
+
+  --content-primary: #FFFFFF;
+  --content-secondary: #A0A0A0;
+  --content-tertiary: #707070;
+  --content-accent: #D4D4D4;
+
+  --border: #404040;
+  --border-focus: #666666;
+  --border-interactive: #404040;
+
+  --interactive: #404040;
+  --interactive-hover: #4A4A4A;
+  --interactive-active: #505050;
+}

@@ -29,6 +29,7 @@ const _action = async ({ request, context }) => {
     "removeApiKey",
     "getApiKeys",
     "updateThreadViewingState",
+    "updateThemePreference",
   ];
 
   if (server && !servers.includes(server)) {
@@ -770,6 +771,69 @@ const _action = async ({ request, context }) => {
         }
       );
     }
+  } else if (intent === "updateThemePreference") {
+    const theme = formData.get("theme") ? String(formData.get("theme")) : null;
+    const accentColor = formData.get("accentColor") ? String(formData.get("accentColor")) : null;
+
+    // If no theme and no accent color, return error
+    if (!theme && !accentColor) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Either theme or accentColor must be provided",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
+
+    // Validate theme if provided
+    if (theme && theme !== "dark" && theme !== "light") {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Invalid theme preference",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
+    }
+
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+
+    // Set theme cookie if theme is provided
+    if (theme) {
+      const themeCookieOptions = [
+        `themePreference=${theme}`,
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Max-Age=31536000", // 1 year
+      ];
+      headers.append("Set-Cookie", themeCookieOptions.join("; "));
+    }
+
+    // Set accent color cookie if accent color is provided
+    if (accentColor) {
+      const accentColorCookieOptions = [
+        `accentColor=${accentColor}`,
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Max-Age=31536000", // 1 year
+      ];
+      headers.append("Set-Cookie", accentColorCookieOptions.join("; "));
+    }
+
+    const data: { success: boolean } = { success: true };
+    return new Response(JSON.stringify(data), { headers });
   } else {
     return new Response(null, { status: 400 });
   }

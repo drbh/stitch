@@ -51,7 +51,7 @@ function ThreadSettingView({
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-content-accent">Settings</h2>
 
-      <div className="bg-surface-secondary rounded-lg shadow-lg p-6">
+      <div className="bg-surface-secondary rounded-lg p-6">
         <h3 className="text-lg font-semibold text-content-accent mb-2">
           Add Webhook
         </h3>

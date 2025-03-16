@@ -15,15 +15,17 @@
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
-		"@remix-run/cloudflare": "^2.15.3",
-		"@remix-run/cloudflare-pages": "^2.15.3",
-		"@remix-run/react": "^2.15.3",
+		"@remix-run/cloudflare": "^2.16.0",
+		"@remix-run/cloudflare-pages": "^2.16.0",
+		"@remix-run/react": "^2.16.0",
 		"date-fns": "^4.1.0",
 		"isbot": "^4.1.0",
+		"leaflet": "^1.9.4",
 		"marked": "^15.0.7",
 		"mime-types": "^2.1.35",
-		"react": "^18.2.0",
-		"react-dom": "^18.2.0",
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1",
+		"react-leaflet": "^4.2.1",
 		"sqlite": "^5.1.1",
 		"sqlite3": "^5.1.7",
 		"uuid": "^11.0.5"

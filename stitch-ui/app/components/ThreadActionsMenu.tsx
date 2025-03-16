@@ -1,11 +1,16 @@
 import React from "react";
 import { useThreadActions } from "./ThreadActionsContext";
 
-const ThreadActionsMenu = ({ setIsOpen }: { setIsOpen: (value: boolean) => void }) => {
-  const { state, toggleShowJson, toggleDevNote, toggleActivityChart } = useThreadActions();
+const ThreadActionsMenu = ({
+  setIsOpen,
+}: {
+  setIsOpen: (value: boolean) => void;
+}) => {
+  const { state, toggleShowJson, toggleDevNote, toggleActivityChart } =
+    useThreadActions();
 
   return (
-    <div className="absolute right-0 mt-1 bg-surface-secondary border border-border rounded-md shadow-lg py-1 w-40 z-10">
+    <div className="absolute right-0 mt-1 bg-surface-secondary border border-border rounded-md  py-1 w-40 z-10">
       <button
         className="flex items-center w-full px-4 py-2 text-sm text-left text-red-400 hover:bg-surface-tertiary"
         onClick={toggleShowJson}

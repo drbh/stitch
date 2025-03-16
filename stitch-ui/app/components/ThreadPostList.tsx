@@ -6,6 +6,7 @@ import JsonViewer from "./JsonViewer";
 import PostComposer from "./PostComposer";
 import DeveloperCard from "./DeveloperCard";
 import { useThreadActions } from "./ThreadActionsContext";
+import LeafletMap from "./LeafletMap";
 
 // In-memory image cache to prevent reloading images when switching tabs
 const imageCache = new Map<string, HTMLImageElement>();
@@ -205,7 +206,7 @@ const ThreadPost = ({
   const initials = getInitials(post.author);
 
   return (
-    <li className="bg-surface-primary p-4 rounded-md border border-border">
+    <li className="bg-surface-primary p-4 rounded-md border border-border overflow-hidden">
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center flex-grow min-w-0 mr-2">
           <Tooltip content={`User: ${post.author}`}>
@@ -285,6 +286,10 @@ const ThreadPost = ({
               className="rounded-md max-h-60 object-cover"
               loading="eager"
               decoding="async"
+              onClick={() => {
+                // simply open the image in a new tab for now - its a great viewer no need to reinvent the wheel
+                window.open(getImageUrl(post, thread));
+              }}
               onLoad={(e) => {
                 // Add to in-memory cache after load
                 const img = e.currentTarget;
@@ -345,6 +350,34 @@ const ThreadPost = ({
             dangerouslySetInnerHTML={renderMarkdown(post.text)}
           />
         )}
+
+        {post &&
+          // extract <position={}> from post
+          (post.text.match(/<position=*.+>/g) || []).map((match) => {
+            const pos = match.slice(10, -1);
+            console.log("match", pos);
+            try {
+              const position = JSON.parse(pos);
+              return (
+                <div key={match}>
+                  <LeafletMap
+                    center={position}
+                    zoom={13}
+                    style={{
+                      height: "300px",
+                      width: "300px",
+                    }}
+                  />
+                </div>
+              );
+            } catch (error) {
+              return (
+                <div key={match} className="text-red-500">
+                  Invalid position data: {pos}
+                </div>
+              );
+            }
+          })}
 
         {/* JSON Viewer */}
         {showJson && (
@@ -477,12 +510,14 @@ const ThreadPostList = ({
     <div className="space-y-6 mt-4">
       {postCountDisplay}
 
-      <PostComposer
-        threadId={thread.id}
-        onPostSuccess={() => {
-          console.log("Post success");
-        }}
-      />
+      {!isShareUrl && (
+        <PostComposer
+          threadId={thread.id}
+          onPostSuccess={() => {
+            console.log("Post success");
+          }}
+        />
+      )}
 
       {/* Memoize the post list to prevent unnecessary re-renders */}
       {React.useMemo(

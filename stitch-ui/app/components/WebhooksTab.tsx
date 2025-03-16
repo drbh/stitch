@@ -184,7 +184,7 @@ function WebhooksTab({
 
       {/* Create Webhook Form - Only visible when needed */}
       {isFormVisible && (
-        <div className="bg-surface-primary border border-border rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-surface-primary border border-border rounded-lg p-6 mb-6">
           <h3 className="text-lg font-semibold text-content-accent mb-4">
             Add Webhook
           </h3>
@@ -313,7 +313,7 @@ function WebhooksTab({
                         key={webhook.id}
                         className={`bg-surface-primary p-4 rounded-lg relative border cursor-pointer border ${
                           selectedWebhook?.id === webhook.id
-                            ? "border-blue-600 shadow-md"
+                            ? "border-blue-600"
                             : "border-border hover:border-border-hover"
                         }`}
                         onClick={() => setSelectedWebhook(webhook)}
@@ -429,7 +429,7 @@ function WebhooksTab({
                           className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
                             testResponse.status >= 200 &&
                             testResponse.status < 300
-                              ? "bg-green-100 text-green-800"
+                              ? "bg-blue-100 text-blue-800"
                               : "bg-red-100 text-red-800"
                           }`}
                         >
@@ -498,7 +498,7 @@ function WebhooksTab({
                           <div
                             className={`text-xs px-2 py-0.5 rounded-full ${
                               entry.status >= 200 && entry.status < 300
-                                ? "bg-green-100 text-green-800"
+                                ? "bg-blue-100 text-blue-800"
                                 : "bg-red-100 text-red-800"
                             }`}
                           >
@@ -548,7 +548,7 @@ const Documentation = () => {
   return (
     <div>
       {/* Documentation */}
-      <div className="bg-surface-primary border border-border rounded-lg shadow-lg p-6 mt-8">
+      <div className="bg-surface-primary border border-border rounded-lg p-6 mt-8">
         <details>
           <summary className="text-lg font-semibold text-content-accent cursor-pointer">
             Webhook Documentation

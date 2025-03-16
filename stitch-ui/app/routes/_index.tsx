@@ -235,6 +235,15 @@ export const loader: LoaderFunction = async ({ request, context }) => {
         activeThreadPosts = context.storageClients[server]
           .getLatestPosts(parseInt(threadId), 10)
           .then((posts) => posts)
+          .then((posts) => {
+            // TODO: ensure the times is being stored correctly and offset by relevant timezone
+            // minus 4 hours from the post.time
+            posts.forEach((post) => {
+              const postTime = new Date(post.time);
+              post.time = new Date(postTime.setHours(postTime.getHours() - 4));
+            });
+            return posts;
+          })
           .catch(() => []);
       }
     } catch (error) {
@@ -399,7 +408,7 @@ export default function Index() {
         />
       )}
       {initialViewConfig.isShareUrl && (
-        <div className="h-16 bg-surface-tertiary border-b border-border shadow-lg flex justify-center items-center px-6">
+        <div className="h-16 bg-surface-tertiary border-b border-border flex justify-center items-center px-6">
           Note: You are viewing a shared thread. This is a read-only view.
         </div>
       )}
@@ -434,7 +443,7 @@ export default function Index() {
         />
       )}
       {/* Bottom bar */}
-      <div className="fixed bottom-0 w-full bg-surface-secondary border-t border-border shadow-lg p-2">
+      <div className="fixed bottom-0 w-full bg-surface-secondary border-t border-border p-2 z-[1000]">
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-500">
             <button

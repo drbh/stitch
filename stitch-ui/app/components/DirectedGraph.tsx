@@ -68,8 +68,7 @@ const DirectedGraph = ({ data = dummyData }) => {
 
   return (
     <div className="flex justify-center items-center">
-      {/* <div className="border border-gray-300 bg-white rounded-lg shadow-sm"> */}
-      <div className="bg-white rounded-lg shadow-sm">
+      <div className="bg-white rounded-lg">
         <svg
           width={svgWidth}
           height={svgHeight}
