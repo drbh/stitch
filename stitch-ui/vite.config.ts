@@ -16,10 +16,10 @@ declare module "@remix-run/cloudflare" {
 // Get formatted version with commit date and git hash
 const getVersionHash = () => {
   try {
-    console.log('Calculate version hash...');
+    console.log("Calculate version hash...");
     return getBuildHash();
   } catch (e) {
-    return 'development';
+    return "development";
   }
 };
 

@@ -1,20 +1,20 @@
 :root {
   /* Default variables (dark theme) */
   --surface-primary: #121212;
-  --surface-secondary: #1e1e1e;
-  --surface-tertiary: #2d2d2d;
+  --surface-secondary: #1E1E1E;
+  --surface-tertiary: #2D2D2D;
 
-  --content-primary: #ffffff;
-  --content-secondary: #a0a0a0;
+  --content-primary: #FFFFFF;
+  --content-secondary: #A0A0A0;
   --content-tertiary: #707070;
-  --content-accent: #d4d4d4;
+  --content-accent: #D4D4D4;
 
   --border: #404040;
   --border-focus: #666666;
   --border-interactive: #404040;
 
   --interactive: #404040;
-  --interactive-hover: #4a4a4a;
+  --interactive-hover: #4A4A4A;
   --interactive-active: #505050;
 
   /* Add smooth transitions for all theme changes */
@@ -23,40 +23,40 @@
 
 /* Light theme */
 .light-theme {
-  --surface-primary: #ffffff;
-  --surface-secondary: #f5f5f5;
-  --surface-tertiary: #eeeeee;
+  --surface-primary: #FFFFFF;
+  --surface-secondary: #F5F5F5;
+  --surface-tertiary: #EEEEEE;
 
   --content-primary: #121212;
   --content-secondary: #555555;
   --content-tertiary: #777777;
   --content-accent: #333333;
 
-  --border: #dddddd;
-  --border-focus: #aaaaaa;
-  --border-interactive: #cccccc;
+  --border: #DDDDDD;
+  --border-focus: #AAAAAA;
+  --border-interactive: #CCCCCC;
 
-  --interactive: #e8e8e8;
-  --interactive-hover: #dddddd;
-  --interactive-active: #cccccc;
+  --interactive: #E8E8E8;
+  --interactive-hover: #DDDDDD;
+  --interactive-active: #CCCCCC;
 }
 
 /* Dark theme (explicit for clarity) */
 .dark-theme {
   --surface-primary: #121212;
-  --surface-secondary: #1e1e1e;
-  --surface-tertiary: #2d2d2d;
+  --surface-secondary: #1E1E1E;
+  --surface-tertiary: #2D2D2D;
 
-  --content-primary: #ffffff;
-  --content-secondary: #a0a0a0;
+  --content-primary: #FFFFFF;
+  --content-secondary: #A0A0A0;
   --content-tertiary: #707070;
-  --content-accent: #d4d4d4;
+  --content-accent: #D4D4D4;
 
   --border: #404040;
   --border-focus: #666666;
   --border-interactive: #404040;
 
   --interactive: #404040;
-  --interactive-hover: #4a4a4a;
+  --interactive-hover: #4A4A4A;
   --interactive-active: #505050;
 }

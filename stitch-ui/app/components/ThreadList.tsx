@@ -414,13 +414,36 @@ const Highlight = ({ text, searchTerm }) => {
 };
 
 // Format relative time from timestamp
-const formatRelativeTime = (timestamp) => {
-  try {
-    const date = new Date(timestamp);
-    return formatDistanceToNow(date, { addSuffix: true });
-  } catch (e) {
-    return timestamp;
+const customFormatRelativeTime = (timestamp: string) => {
+  // TODO: improve to handle different timezones based on caller
+  //
+  // for now we force timezone to New York to align the front and back end
+  const timeZone = "America/New_York";
+  const currentTimeWithOffset = new Date().toLocaleString("en-US", {
+    timeZone,
+  });
+  const currentTime = new Date(currentTimeWithOffset);
+
+  const diff = currentTime.getTime() - new Date(timestamp).getTime();
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    return `${days} day${days > 1 ? "s" : ""} ago`;
   }
+
+  if (hours > 0) {
+    return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes} minute${minutes > 1 ? "s" : ""} ago`;
+  }
+
+  return `${seconds} second${seconds > 1 ? "s" : ""} ago`;
 };
 
 // Main ThreadList component
@@ -528,7 +551,9 @@ function ThreadList({
 
                   // Apply search filter
                   const searchedThreads = searchTerm
-                    ? filteredThreads.filter((thread) => threadMatchesSearch(thread, searchTerm))
+                    ? filteredThreads.filter((thread) =>
+                        threadMatchesSearch(thread, searchTerm)
+                      )
                     : filteredThreads;
 
                   // Update search count outside of render
@@ -640,7 +665,9 @@ function ThreadList({
                                 </div>
 
                                 <p className="text-sm text-gray-400 truncate mt-1">
-                                  {formatRelativeTime(thread.last_activity)}
+                                  {customFormatRelativeTime(
+                                    thread.last_activity
+                                  )}
                                   {thread.author && (
                                     <>
                                       {" • "}

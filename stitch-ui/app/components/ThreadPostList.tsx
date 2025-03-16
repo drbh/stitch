@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect, startTransition } from "react";
 import { Await, useFetcher } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { marked } from "marked";
@@ -126,11 +126,44 @@ const ThreadPost = ({
   const [editedText, setEditedText] = useState(post.text);
   const fetcher = useFetcher();
 
+  // Format relative time from timestamp
+  const customFormatRelativeTime = (timestamp: string) => {
+    // TODO: improve to handle different timezones based on caller
+    //
+    // for now we force timezone to New York to align the front and back end
+    const timeZone = "America/New_York";
+    const currentTimeWithOffset = new Date().toLocaleString("en-US", {
+      timeZone,
+    });
+    const currentTime = new Date(currentTimeWithOffset);
+
+    const diff = currentTime.getTime() - new Date(timestamp).getTime();
+
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      return `${days} day${days > 1 ? "s" : ""} ago`;
+    }
+
+    if (hours > 0) {
+      return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+    }
+
+    if (minutes > 0) {
+      return `${minutes} minute${minutes > 1 ? "s" : ""} ago`;
+    }
+
+    return `${seconds} second${seconds > 1 ? "s" : ""} ago`;
+  };
+
+
   // Parse the timestamp and format as relative time
   const getRelativeTime = (timestamp: string) => {
     try {
-      const date = new Date(timestamp);
-      return formatDistanceToNow(date, { addSuffix: true });
+      return customFormatRelativeTime(timestamp);
     } catch (e) {
       return timestamp; // Fallback to original format if parsing fails
     }
@@ -470,7 +503,10 @@ const ThreadPostList = ({
   useEffect(() => {
     activeThreadPosts.then((posts) => {
       // Preload all post images to avoid reloading when switching tabs
-      preloadImages(posts, thread);
+      // Using startTransition to prevent hydration mismatch errors
+      startTransition(() => {
+        preloadImages(posts, thread);
+      });
     });
   }, [activeThreadPosts, thread]);
 
@@ -483,8 +519,11 @@ const ThreadPostList = ({
             <Suspense fallback={<span>Loading...</span>}>
               <Await resolve={activeThreadPosts}>
                 {(posts) => {
-                  // Trigger image preloading when posts are first displayed
-                  preloadImages(posts, thread);
+                  // Trigger image preloading when posts are first displayed in a startTransition
+                  // to prevent hydration errors
+                  startTransition(() => {
+                    preloadImages(posts, thread);
+                  });
 
                   return (
                     <span>
@@ -529,6 +568,11 @@ const ThreadPostList = ({
               <Await resolve={activeThreadPosts}>
                 {(posts) => {
                   // Use a memoized post list component
+                  // Preload images inside startTransition to prevent hydration errors
+                  startTransition(() => {
+                    preloadImages(posts, thread);
+                  });
+
                   if (posts.length > 0) {
                     return (
                       <ul className="space-y-4">

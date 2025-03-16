@@ -35,6 +35,19 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const server = url.searchParams.get("s");
   const buildHash = getBuildHash();
 
+  // TODO: infer timezone from request headers/cookies or fallback to UTC
+  const timeZone = "America/New_York";
+
+  const offsetUTCStringByTimeZone = (
+    utcTimeString: string,
+    timeZone: string
+  ) => {
+    const date = new Date(utcTimeString);
+    const offset = date.getTimezoneOffset();
+    const offsetDate = new Date(date.getTime() - offset * 60 * 1000);
+    return offsetDate.toLocaleString("en-US", { timeZone });
+  };
+
   // Get thread viewing state from cookie
   const threadViewingState = getInitialThreadActionsState(request);
 
@@ -184,6 +197,14 @@ export const loader: LoaderFunction = async ({ request, context }) => {
         .then((serverThreads) => {
           serverThreads.forEach((thread) => {
             thread.location = srv;
+            const timeKeys = ["created_at", "updated_at", "last_activity"];
+            timeKeys.forEach((key) => {
+              // @ts-ignore
+              if (thread[key]) {
+                // @ts-ignore
+                thread[key] = offsetUTCStringByTimeZone(thread[key], timeZone);
+              }
+            });
           });
           return serverThreads;
         })
@@ -234,15 +255,11 @@ export const loader: LoaderFunction = async ({ request, context }) => {
 
         activeThreadPosts = context.storageClients[server]
           .getLatestPosts(parseInt(threadId), 10)
-          .then((posts) => posts)
           .then((posts) => {
-            // TODO: ensure the times is being stored correctly and offset by relevant timezone
-            // minus 4 hours from the post.time
-            posts.forEach((post) => {
-              const postTime = new Date(post.time);
-              post.time = new Date(postTime.setHours(postTime.getHours() - 4));
+            return posts.map((post) => {
+              post.time = offsetUTCStringByTimeZone(post.time, timeZone);
+              return post;
             });
-            return posts;
           })
           .catch(() => []);
       }
@@ -468,7 +485,7 @@ export default function Index() {
           </div>
 
           <div className="text-sm text-gray-500 text-end opacity-50">
-            &copy; {new Date().getFullYear()} Stitch | Version {buildHash}
+            &copy; 2025 Stitch | Version {buildHash}
           </div>
         </div>
       </div>
