@@ -1812,6 +1812,156 @@ class ApiRoutes {
 			},
 		});
 	}
+
+	@ApiOperation({
+		path: '/api/info',
+		method: 'get',
+		summary: 'Get system information',
+		description: 'Returns comprehensive information about the system including version, status, and runtime details',
+		tags: ['System'],
+		responses: {
+			'200': {
+				description: 'System information',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								version: { type: 'string' },
+								buildTimestamp: { type: 'string' },
+								environment: { type: 'string' },
+								status: { type: 'string' },
+								uptime: { type: 'number' },
+								database: {
+									type: 'object',
+									properties: {
+										status: { type: 'string' },
+										migrations: { type: 'string' },
+									},
+								},
+								storage: {
+									type: 'object',
+									properties: {
+										status: { type: 'string' },
+									},
+								},
+								memory: {
+									type: 'object',
+									properties: {
+										usage: { type: 'number' },
+										available: { type: 'number' },
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	@routeTrace
+	async getSystemInfo(request: IRequest): Promise<Response> {
+		try {
+			// Get build-related information
+			const version = this.env.BUILD_HASH || '1.0.0';
+			const buildTimestamp = this.env.BUILD_TIMESTAMP || new Date().toISOString();
+			const environment = this.env.ENVIRONMENT || 'production';
+
+			// Calculate uptime if available
+			const startTime = this.env.START_TIME || Date.now();
+			const uptime = Math.floor((Date.now() - Number(startTime)) / 1000); // Uptime in seconds
+
+			// Check database status
+			let dbStatus = 'unknown';
+			let migrationVersion = 'unknown';
+
+			// Check R2 storage status
+			let storageStatus = 'unknown';
+			try {
+				if (this.env.BUCKET1) {
+					// Try to list a single object to check connectivity
+					await this.env.BUCKET1.list({ limit: 1 });
+					storageStatus = 'connected';
+				} else {
+					storageStatus = 'not_configured';
+				}
+			} catch (storageError) {
+				console.error('[TRACE] Storage check error:', storageError);
+				storageStatus = 'error';
+			}
+
+			// Get memory information if available in Workers environment
+			// Note: This is a placeholder as Workers doesn't expose memory info directly
+			const memoryInfo = {
+				usage: -1, // Not available in standard Workers
+				available: -1, // Not available in standard Workers
+			};
+
+			// Get thread and post counts
+			let totalThreads = 0;
+			let totalPosts = 0;
+			let totalDocuments = 0;
+
+			try {
+				const threadCountResult = await this.env.DB.prepare('SELECT COUNT(*) as count FROM threads').first();
+				if (threadCountResult) {
+					totalThreads = threadCountResult.count;
+				}
+
+				const postCountResult = await this.env.DB.prepare('SELECT COUNT(*) as count FROM posts').first();
+				if (postCountResult) {
+					totalPosts = postCountResult.count;
+				}
+
+				const documentCountResult = await this.env.DB.prepare('SELECT COUNT(*) as count FROM documents').first();
+				if (documentCountResult) {
+					totalDocuments = documentCountResult.count;
+				}
+			} catch (countError) {
+				console.error('[TRACE] Count retrieval error:', countError);
+			}
+
+			// Assemble the response
+			const systemInfo = {
+				version,
+				buildTimestamp,
+				environment,
+				status: 'operational', // Assuming we've reached this point, the API is operational
+				uptime,
+				database: {
+					status: dbStatus,
+					migrations: migrationVersion,
+				},
+				storage: {
+					status: storageStatus,
+				},
+				memory: memoryInfo,
+				stats: {
+					threads: totalThreads,
+					posts: totalPosts,
+					documents: totalDocuments,
+				},
+				features: {
+					webhooks: true,
+					apiKeys: true,
+					documentSupport: true,
+					fileUploads: this.env.BUCKET1 ? true : false,
+				},
+			};
+
+			return Response.json(systemInfo);
+		} catch (error) {
+			console.error('[TRACE] Error in getSystemInfo:', error);
+			return Response.json(
+				{
+					status: 'error',
+					message: 'Error retrieving system information',
+					version: this.env.BUILD_HASH || '1.0.0',
+				},
+				{ status: 500 }
+			);
+		}
+	}
 }
 
 // Main fetch handler
@@ -1839,6 +1989,9 @@ function buildRouter(env: Env): RouterType {
 
 	// Add OpenAPI spec endpoint (no auth required)
 	router.get('/api/docs/openapi.json', apiRoutes.getOpenApiSpec.bind(apiRoutes));
+
+	// Add system info endpoint (no auth required)
+	router.get('/api/info', apiRoutes.getSystemInfo.bind(apiRoutes));
 
 	// Apply auth middleware to routes starting with /api/*
 	router.all('/api/*', async (request: Request, env: Env) => {
@@ -1880,6 +2033,12 @@ function buildRouter(env: Env): RouterType {
 	router.put('/api/apikeys/:keyId', apiRoutes.updateApiKey.bind(apiRoutes));
 	router.get('/api/uploads/:fileId', apiRoutes.getFile.bind(apiRoutes));
 	router.post('/api/upload', apiRoutes.uploadFile.bind(apiRoutes));
+	router.get('/version', () => {
+		// read from env variable
+		const version = env.BUILD_HASH || '1.0.0';
+		console.log('Version:', version);
+		return new Response(version);
+	});
 	router.all('*', () => new Response('Not Found', { status: 404 }));
 
 	return router;
