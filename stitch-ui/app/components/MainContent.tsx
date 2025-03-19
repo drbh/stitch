@@ -221,7 +221,7 @@ function MainContentInner({
   }, [isOpen]);
 
   return (
-    <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto bg-surface-primary p-6">
+    <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden bg-surface-primary p-6">
       {activeThread ? (
         <div className="max-w-3xl mx-auto space-y-6">
           {/* Thread header with actions menu */}

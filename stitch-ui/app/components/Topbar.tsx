@@ -1,10 +1,101 @@
-import React from "react";
+import React, { useId } from "react";
 import ThemeToggle from "./ThemeToggle";
 
+const StitchSphere = ({
+  primaryColor = "#6a9fb0",
+  secondaryColor = "powderblue",
+  highlightColor = "#ffffff",
+  size = "w-6 h-6",
+}) => {
+  // Generate unique IDs for the gradient and filter to avoid conflicts when multiple spheres are used
+  const gradientId = `sphereGradient-${useId()}`;
+  const shadowId = `sphereShadow-${useId()}`;
+
+  const getSecondaryColor = (primaryColor) => {
+    // Parse the primary color
+    const hex = primaryColor.replace("#", "");
+    const num = parseInt(hex, 16);
+
+    // Extract RGB components
+    const red = num >> 16;
+    const green = (num >> 8) & 255;
+    const blue = num & 255;
+
+    // Apply a transformation similar to the 2e7d32 -> 81c784 relationship
+    // Red: ~2.8x, Green: ~1.6x, Blue: ~2.6x
+    // We'll use slightly rounded values for cleaner math
+    const newRed = Math.min(255, Math.round(red * 2.8));
+    const newGreen = Math.min(255, Math.round(green * 1.6));
+    const newBlue = Math.min(255, Math.round(blue * 2.6));
+
+    // Convert components back to hex with proper padding
+    const componentToHex = (c) => {
+      const hex = c.toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    };
+
+    // Return the formatted hex color
+    return `#${componentToHex(newRed)}${componentToHex(
+      newGreen
+    )}${componentToHex(newBlue)}`;
+  };
+
+  if (secondaryColor === "powderblue") {
+    secondaryColor = getSecondaryColor(primaryColor);
+  }
+
+  return (
+    <div className={`flex ${size} items-center justify-center`}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 102 102"
+        style={{ background: "transparent" }}
+      >
+        {/* Define the radial gradient with customizable colors */}
+        <defs>
+          <radialGradient id={gradientId} cx="25%" cy="20%" r="70%">
+            <stop offset="0%" stopColor={highlightColor} />
+            <stop offset="60%" stopColor={secondaryColor} />
+            <stop offset="100%" stopColor={primaryColor} />
+          </radialGradient>
+        </defs>
+        {/* Add a subtle shadow/glow filter */}
+        <defs>
+          <filter id={shadowId} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur" />
+            <feOffset in="blur" dx="1" dy="1" result="offsetBlur" />
+            <feComposite in="SourceGraphic" in2="offsetBlur" operator="over" />
+          </filter>
+        </defs>
+        {/* Circle with gradient fill and improved border */}
+        <circle
+          cx="51"
+          cy="51"
+          r="50"
+          fill={`url(#${gradientId})`}
+          filter={`url(#${shadowId})`}
+          stroke="none"
+        />
+        {/* Subtle rim highlight */}
+        <circle
+          cx="51"
+          cy="51"
+          r="50"
+          fill="none"
+          stroke="rgba(255,255,255,0.3)"
+          strokeWidth="0.5"
+        />
+      </svg>
+    </div>
+  );
+};
+
 function Topbar({
+  accentColor,
   openSettings,
   toggleOpenMenu,
 }: {
+  accentColor: string;
   openSettings: () => void;
   toggleOpenMenu?: (setIsOpen: (isOpen: boolean) => void) => void;
 }) {
@@ -35,84 +126,11 @@ function Topbar({
         )}
 
         <div className="flex items-center">
-          <svg
-            width="50"
-            height="50"
-            viewBox="0 0 200 200"
-            xmlns="http://www.w3.org/2000/svg"
-            className="mr-3"
-          >
-            <defs>
-              <linearGradient
-                id="threadGradient"
-                x1="0%"
-                y1="0%"
-                x2="100%"
-                y2="100%"
-              >
-                <stop offset="0%" stopColor="#3B82F6" />
-                <stop offset="100%" stopColor="#8B5CF6" />
-              </linearGradient>
-            </defs>
-            <g
-              fill="none"
-              stroke="url(#threadGradient)"
-              strokeWidth="16"
-              strokeLinecap="round"
-            >
-              {/* Main thread line */}
-              <path d="M50,30 C120,30 80,100 150,100" />
-              <circle
-                cx="50"
-                cy="30"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
+          <div className="flex items-center gap-2">
+            <StitchSphere primaryColor={accentColor} />
 
-              {/* essentially the above flipped */}
-              <path d="M50,150 C100,220 120,100  150,100" />
-              <circle
-                cx="50"
-                cy="150"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-              <path d="M55,65 C90,65 90,5 150,100" />
-              <circle
-                cx="55"
-                cy="65"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-              <path d="M45,110 C80,60 60,160 150,100" />
-              <circle
-                cx="45"
-                cy="110"
-                r="12"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-
-              {/* center node */}
-              <circle
-                cx="150"
-                cy="100"
-                r="20"
-                fill="url(#threadGradient)"
-                stroke="none"
-              />
-            </g>
-          </svg>
-
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold text-content-accent leading-none">
+            <span className="text-xl font-bold text-content-primary">
               Stitch
-            </h1>
-            <span className="text-xs text-content-tertiary opacity-50">
-              by stitch.sh
             </span>
           </div>
         </div>

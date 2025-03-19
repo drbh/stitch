@@ -213,7 +213,7 @@ const ActivityChart = ({
     // Count posts for each day
     posts.forEach((post) => {
       try {
-        const postDate = parseISO(post.time);
+        const postDate = new Date(post.time);
 
         // Find the index of the day in our array
         const dayIndex = days.findIndex((day) => isSameDay(day, postDate));

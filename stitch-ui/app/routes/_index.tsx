@@ -17,6 +17,8 @@ import Topbar from "~/components/Topbar";
 import Sidebar from "~/components/Sidebar";
 import MainContent from "~/components/MainContent";
 import { getInitialThreadActionsState } from "~/components/ThreadActionsContext";
+import { getInitialThemeState } from "~/components/ThemeContext";
+
 
 import _action from "~/service/actions";
 
@@ -34,6 +36,8 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
   const buildHash = getBuildHash();
+
+  const { accentColor } = getInitialThemeState(request);
 
   // TODO: infer timezone from request headers/cookies or fallback to UTC
   const timeZone = "America/New_York";
@@ -301,6 +305,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     activeThreadPosts,
     buildHash,
     threadViewingState,
+    accentColor,
   };
 
   console.log(`[TRACE] Loader finished in ${Date.now() - overallStart}ms`);
@@ -362,6 +367,7 @@ export default function Index() {
     activeThreadPosts,
     buildHash,
     threadViewingState,
+    accentColor,
   } = useLoaderData<LoaderData>();
 
   // updapte showSettings to be true if there are no backends and were not shared
@@ -420,6 +426,7 @@ export default function Index() {
     <div className="min-h-screen bg-surface-primary text-content-primary">
       {!initialViewConfig.isShareUrl && (
         <Topbar
+          accentColor={accentColor}
           openSettings={() => setShowSettings(true)}
           toggleOpenMenu={() => setShowMenu(!showMenu)}
         />
