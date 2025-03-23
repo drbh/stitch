@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useFetcher } from "react-router-dom";
 import { marked } from "marked";
 
@@ -32,7 +32,11 @@ const PreviewToggle = ({ showPreview, onToggle }) => {
     <button
       onClick={onToggle}
       className="text-xs flex items-center px-3 py-1 rounded bg-surface-tertiary text-gray-300 hover:bg-zinc-600 transition-colors"
-      title={showPreview ? "Edit markdown" : "Preview rendered markdown"}
+      title={
+        showPreview
+          ? "Edit markdown (Alt+P)"
+          : "Preview rendered markdown (Alt+P)"
+      }
     >
       {showPreview ? (
         <>
@@ -204,7 +208,13 @@ const QuickStartCard = ({ options, onSelectOption, onDismiss }) => {
 };
 
 // Main ThreadComposer component
-function ThreadComposer({ servers }: { servers: string[] }) {
+function ThreadComposer({
+  servers,
+  onSuccess,
+}: {
+  servers: string[];
+  onSuccess?: () => void;
+}) {
   const fetcher = useFetcher<{ success: boolean }>();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -216,6 +226,8 @@ function ThreadComposer({ servers }: { servers: string[] }) {
   // Initialize state but don't render until we've checked localStorage
   const [showQuickStart, setShowQuickStart] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Check localStorage on component mount to determine if quick start should be shown
   useEffect(() => {
@@ -223,6 +235,13 @@ function ThreadComposer({ servers }: { servers: string[] }) {
     const quickStartDismissed = localStorage.getItem("quickStartDismissed");
     setShowQuickStart(quickStartDismissed !== "true");
     setIsInitialized(true);
+
+    // Focus the title input when the component mounts (modal opens)
+    setTimeout(() => {
+      if (titleInputRef.current) {
+        titleInputRef.current.focus();
+      }
+    }, 100);
   }, []);
 
   const handleDismissQuickStart = () => {
@@ -250,8 +269,16 @@ function ThreadComposer({ servers }: { servers: string[] }) {
       setTitle("");
       setContent("");
       setShowPreview(false);
+
+      // Call onSuccess callback if provided (to close modal)
+      if (onSuccess) {
+        onSuccess();
+      }
+
+      // Reload the page to show the new thread
+      window.location.reload();
     }
-  }, [fetcher.data]);
+  }, [fetcher.data, onSuccess]);
 
   // Quick start thread types with descriptions for hover
   const quickStartOptions = [
@@ -297,17 +324,7 @@ function ThreadComposer({ servers }: { servers: string[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Quick Start Section - only shows if not dismissed and initialization is complete */}
-      {isInitialized && showQuickStart && (
-        <QuickStartCard
-          options={quickStartOptions}
-          onSelectOption={handleQuickStart}
-          onDismiss={handleDismissQuickStart}
-        />
-      )}
-
       {/* Thread Form */}
-      <h2 className="text-xl text-white">New Thread</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Server Selection */}
         <label className="block text-sm text-gray-400 mb-1">
@@ -328,6 +345,7 @@ function ThreadComposer({ servers }: { servers: string[] }) {
         </select>
         {/* Thread Title */}
         <input
+          ref={titleInputRef}
           type="text"
           placeholder="Thread Title"
           value={title}
@@ -346,7 +364,7 @@ function ThreadComposer({ servers }: { servers: string[] }) {
                 type="button"
                 onClick={() => setShowMarkdownHelper(!showMarkdownHelper)}
                 className="text-xs flex items-center px-2 py-1 rounded bg-surface-tertiary text-gray-300 hover:bg-zinc-600 transition-colors"
-                title="Show markdown formatting help"
+                title="Show markdown formatting help (Alt+H)"
               >
                 <svg
                   className="w-3 h-3 mr-1"
@@ -375,6 +393,7 @@ function ThreadComposer({ servers }: { servers: string[] }) {
           {/* Content Input or Preview */}
           {!showPreview ? (
             <textarea
+              ref={contentTextareaRef}
               placeholder="Write your content here using Markdown..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -391,6 +410,7 @@ function ThreadComposer({ servers }: { servers: string[] }) {
           type="submit"
           className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium rounded-md transition-colors"
           disabled={!title.trim()}
+          title="Post thread (⌘+Enter)"
         >
           Post Thread
         </button>

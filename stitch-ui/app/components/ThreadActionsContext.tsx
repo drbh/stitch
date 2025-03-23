@@ -48,7 +48,7 @@ export function getInitialThreadActionsState(
   const defaultState: ThreadActionsState = {
     showJson: false,
     showDevNote: false,
-    showActivityChart: true,
+    showActivityChart: false,
   };
 
   if (!threadViewingState) {
@@ -81,7 +81,7 @@ export function ThreadActionsProvider({
     initialState || {
       showJson: false,
       showDevNote: false,
-      showActivityChart: true,
+      showActivityChart: false,
     }
   );
 

@@ -30,6 +30,26 @@ const ThreadSearch = ({ onSearch }) => {
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Don't trigger shortcuts when typing in input fields
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.contentEditable === "true"
+      ) {
+        // Only handle Escape key for search input
+        if (
+          e.key === "Escape" &&
+          isSearchVisible &&
+          document.activeElement === searchInputRef.current
+        ) {
+          setIsSearchVisible(false);
+          setSearchTerm("");
+          e.preventDefault();
+        }
+        return;
+      }
+
       // Ctrl+F or Cmd+F to focus search
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
@@ -45,6 +65,36 @@ const ThreadSearch = ({ onSearch }) => {
       if (e.key === "Escape" && isSearchVisible) {
         setIsSearchVisible(false);
         setSearchTerm("");
+      }
+
+      // '/' key to focus search
+      if (e.key === "/" && !isSearchVisible) {
+        e.preventDefault();
+        setIsSearchVisible(true);
+        setTimeout(() => {
+          if (searchInputRef.current) {
+            searchInputRef.current.focus();
+          }
+        }, 100);
+      }
+
+      // Simple navigation with j/k keys without modifiers (Vim style)
+      if (!isSearchVisible) {
+        // j key to navigate down the list of threads
+        if (e.key === "j" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          // Implement logic to select next thread in the list visually
+          // This would require maintaining a selected index state
+          // For now, we'll leave this for future enhancement
+        }
+
+        // k key to navigate up the list of threads
+        if (e.key === "k" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          // Implement logic to select previous thread in the list visually
+          // This would require maintaining a selected index state
+          // For now, we'll leave this for future enhancement
+        }
       }
     };
 
@@ -84,7 +134,7 @@ const ThreadSearch = ({ onSearch }) => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search in threads..."
-            className="flex-1 px-3 py-2 bg-transparent border-none text-white focus:outline-none"
+            className="flex-1 px-3 py-2 bg-surface-secondary border-none text-white focus:outline-none rounded-md"
             autoFocus
           />
           {searchTerm && (
@@ -451,10 +501,12 @@ function ThreadList({
   threads,
   setActiveThread,
   activeThread,
+  createNewThread,
 }: {
   threads: Promise<Thread[]>;
   activeThread: Thread | null;
   setActiveThread: (thread: Thread | null) => void;
+  createNewThread?: () => void;
 }) {
   const fetcher = useFetcher<{ success: boolean }>();
   const [sortBy, setSortBy] = useState("recent");
@@ -514,23 +566,55 @@ function ThreadList({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl text-white">Threads</h2>
-        <div className="text-sm text-gray-400">
-          <Suspense fallback={<span>Loading...</span>}>
-            <Await resolve={threads}>
-              {(resolvedThreads) => {
-                const visibleCount = resolvedThreads.filter((thread) => {
-                  const threadKey = `${thread.id}-${thread.location}`;
-                  return !hiddenThreads.includes(threadKey);
-                }).length;
-                return (
-                  <span>
-                    {visibleCount} thread{visibleCount !== 1 ? "s" : ""}
-                  </span>
-                );
-              }}
-            </Await>
-          </Suspense>
+        <div className="w-full">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl text-white">Threads</h2>
+
+            {createNewThread && (
+              <button
+                onClick={createNewThread}
+                // className="hidden md:flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded border border-border transition-colors"
+                className="flex justify-between bg-surface-primary w-16 text-content-primary px-1.5 py-0.5 text-sm rounded border border-border hover:bg-surface-secondary transition-colors"
+                aria-label="New Thread"
+              >
+                <div className="mt-[2.5px]">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 5v14M5 12h14"></path>
+                  </svg>
+                </div>
+                {/* <span>New Thread</span> */}
+                <div className="text-xs bg-surface-tertiary text-content-tertiary px-1.5 py-0.5 rounded border border-border">
+                  ^N
+                </div>
+              </button>
+            )}
+          </div>
+          <div className="text-sm text-gray-400">
+            <Suspense fallback={<span>Loading...</span>}>
+              <Await resolve={threads}>
+                {(resolvedThreads) => {
+                  const visibleCount = resolvedThreads.filter((thread) => {
+                    const threadKey = `${thread.id}-${thread.location}`;
+                    return !hiddenThreads.includes(threadKey);
+                  }).length;
+                  return (
+                    <span>
+                      {visibleCount} thread{visibleCount !== 1 ? "s" : ""}
+                    </span>
+                  );
+                }}
+              </Await>
+            </Suspense>
+          </div>
         </div>
       </div>
 

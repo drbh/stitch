@@ -94,18 +94,22 @@ function Topbar({
   accentColor,
   openSettings,
   toggleOpenMenu,
+  openCommandPalette,
+  createNewThread,
 }: {
   accentColor: string;
   openSettings: () => void;
   toggleOpenMenu?: (setIsOpen: (isOpen: boolean) => void) => void;
+  openCommandPalette?: () => void;
+  createNewThread?: () => void;
 }) {
   return (
-    <header className="h-16 bg-surface-primary border-b border-border flex justify-between items-center px-6">
+    <header className="z-1000 h-16 bg-surface-primary border-b border-border flex justify-between items-center px-6">
       <div className="flex items-center gap-2">
         {toggleOpenMenu && (
           <button
             onClick={() => toggleOpenMenu((isOpen) => !isOpen)}
-            className="lg:hidden mr-2 p-1 rounded hover:bg-interactive-hover transition-colors"
+            className="mr-2 p-1 rounded hover:bg-interactive-hover transition-colors"
             aria-label="Toggle menu"
           >
             <svg
@@ -136,7 +140,33 @@ function Topbar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        {openCommandPalette && (
+          <button
+            onClick={openCommandPalette}
+            className="hidden md:flex items-center gap-2 px-3 py-1.5 text-sm bg-surface-secondary text-content-secondary hover:bg-interactive-hover rounded border border-border transition-colors"
+            aria-label="Command Palette"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span>Search...</span>
+            <div className="ml-32 text-xs bg-surface-tertiary text-content-tertiary px-1.5 py-0.5 rounded border border-border">
+              ⌘K
+            </div>
+          </button>
+        )}
+
         <ThemeToggle />
         <button
           onClick={() => {

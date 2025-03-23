@@ -22,7 +22,7 @@ import {
 
 // Memoized wrapper to prevent unnecessary rerenders
 const ThreadPostListWrapper = memo(
-  ({ thread, isShareUrl, activeThreadPosts }) => {
+  ({ thread, isShareUrl, activeThreadPosts, focusNewPost }) => {
     const { state } = useThreadActions();
     return (
       <ThreadPostList
@@ -30,6 +30,7 @@ const ThreadPostListWrapper = memo(
         isShareUrl={isShareUrl}
         activeThreadPosts={activeThreadPosts}
         showJson={state.showJson}
+        focusNewPost={focusNewPost}
       />
     );
   }
@@ -43,6 +44,7 @@ function MainContentInner({
   activeThreadDocuments,
   activeThreadApiKeys,
   isShareUrl,
+  focusNewPost,
 }: {
   activeThread: Thread | null;
   activeThreadPosts: Promise<Post[]>;
@@ -50,6 +52,7 @@ function MainContentInner({
   activeThreadDocuments: Promise<TDocument[]>;
   activeThreadApiKeys: Promise<APIKey[]>;
   isShareUrl: boolean;
+  focusNewPost?: boolean;
 }) {
   const [currentTab, setCurrentTab] = useState(ThreadTab.Posts);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -221,7 +224,7 @@ function MainContentInner({
   }, [isOpen]);
 
   return (
-    <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden bg-surface-primary p-6">
+    <main className="flex-1 h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden bg-surface-primary p-4">
       {activeThread ? (
         <div className="max-w-3xl mx-auto space-y-6">
           {/* Thread header with actions menu */}
@@ -245,7 +248,7 @@ function MainContentInner({
             return (
               <Suspense
                 fallback={
-                  <div className="bg-zinc-900 rounded-md border border-border p-4 mb-6 animate-pulse">
+                  <div className="animate-pulse bg-surface-primary rounded-md border border-border p-4 mb-6 animate-pulse">
                     <div className="h-5 bg-zinc-800 rounded w-1/3 mb-4"></div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                       {[1, 2, 3, 4].map((i) => (
@@ -290,6 +293,7 @@ function MainContentInner({
               thread={activeThread}
               isShareUrl={isShareUrl}
               activeThreadPosts={activeThreadPosts}
+              focusNewPost={focusNewPost}
             />
           ) : currentTab === ThreadTab.Webhooks ? (
             <WebhooksTab activeThreadWebhooks={activeThreadWebhooks} />
@@ -311,7 +315,7 @@ function MainContentInner({
           ) : null}
         </div>
       ) : (
-        <div className="h-full flex items-center justify-center text-content-tertiary">
+        <div className="h-[50vh] flex items-center justify-center text-content-tertiary">
           Select a thread to view details
         </div>
       )}
@@ -330,6 +334,7 @@ export default function MainContent(props: {
   activeThreadApiKeys: Promise<APIKey[]>;
   isShareUrl: boolean;
   threadViewingState?: any;
+  focusNewPost?: boolean;
 }) {
   return (
     <ThreadActionsProvider initialState={props.threadViewingState}>

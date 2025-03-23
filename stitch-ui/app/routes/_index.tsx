@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { LoaderFunction, ActionFunction } from "@remix-run/cloudflare";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData, useOutletContext } from "@remix-run/react";
 import { clientMiddleware } from "~/middleware/storageClient";
 import type {
   Thread,
@@ -18,7 +18,10 @@ import Sidebar from "~/components/Sidebar";
 import MainContent from "~/components/MainContent";
 import { getInitialThreadActionsState } from "~/components/ThreadActionsContext";
 import { getInitialThemeState } from "~/components/ThemeContext";
-
+import CommandPalette from "~/components/CommandPalette";
+import KeyboardShortcuts from "~/components/KeyboardShortcuts";
+import ThreadComposer from "~/components/ThreadComposer";
+import { useTheme } from "~/components/ThemeContext";
 
 import _action from "~/service/actions";
 
@@ -36,7 +39,6 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const threadId = url.searchParams.get("t");
   const server = url.searchParams.get("s");
   const buildHash = getBuildHash();
-
   const { accentColor } = getInitialThemeState(request);
 
   // TODO: infer timezone from request headers/cookies or fallback to UTC
@@ -54,6 +56,17 @@ export const loader: LoaderFunction = async ({ request, context }) => {
 
   // Get thread viewing state from cookie
   const threadViewingState = getInitialThreadActionsState(request);
+
+  // Get user profile from cookie
+  const userCookie = request.headers.get("Cookie");
+  const userProfile = userCookie
+    ?.split(";")
+    .find((c) => c.trim().startsWith("user="));
+
+  let userProfileObj = null;
+  if (userProfile) {
+    userProfileObj = JSON.parse(decodeURIComponent(userProfile.split("=")[1]));
+  }
 
   // Measure the clientMiddleware call.
   const middlewareStart = Date.now();
@@ -290,7 +303,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const initialViewConfig = {
     isShareUrl,
     showSettings: false,
-    showMenu: false,
+    showMenu: true,
   };
 
   const data: LoaderData = {
@@ -306,6 +319,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
     buildHash,
     threadViewingState,
     accentColor,
+    userProfileObj,
   };
 
   console.log(`[TRACE] Loader finished in ${Date.now() - overallStart}ms`);
@@ -354,6 +368,14 @@ async function creatEphemeralPubKeySignature() {
   return { hash, preimage };
 }
 
+type OutletContext = {
+  toggleCommandPalette: () => void;
+  toggleNewThreadModal: () => void;
+  openCommandPalette: () => void;
+  openNewThreadModal?: () => void;
+  isNewThreadModalOpen: boolean;
+};
+
 export default function Index() {
   const {
     threads,
@@ -368,7 +390,51 @@ export default function Index() {
     buildHash,
     threadViewingState,
     accentColor,
+    userProfileObj,
   } = useLoaderData<LoaderData>();
+
+  const { theme, toggleTheme } = useTheme();
+  const {
+    toggleCommandPalette,
+    toggleNewThreadModal,
+    openCommandPalette,
+    setIsCommandPaletteOpen,
+    openNewThreadModal,
+    isNewThreadModalOpen: showNewThreadForm,
+
+    //
+    setShowSettings,
+    showSettings,
+  } = useOutletContext<OutletContext>();
+  // const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  // const [showNewThreadForm, setShowNewThreadForm] = useState(false);
+  const [focusNewPost, setFocusNewPost] = useState(false);
+
+  // if localStorage.getItem("hasSeenCommandPaletteInfo") is false, set isCommandPaletteOpen to true
+  useEffect(() => {
+    const hasSeenCommandPaletteInfo = localStorage.getItem(
+      "hasSeenCommandPaletteInfo"
+    );
+    if (!hasSeenCommandPaletteInfo) {
+      setIsCommandPaletteOpen(true);
+    }
+  }, []);
+
+  const setShowNewThreadForm = (value: boolean) => {
+    if (value) {
+      toggleNewThreadModal();
+    } else {
+      toggleNewThreadModal();
+    }
+  };
+
+  // The parent might try to open our thread modal, so let's just double check if it's already open
+  useEffect(() => {
+    if (openNewThreadModal) {
+      // This effect will run when parent triggers openNewThreadModal
+      // setShowNewThreadForm(true);
+    }
+  }, [openNewThreadModal]);
 
   // updapte showSettings to be true if there are no backends and were not shared
   if (backendMetadata.length === 0 && !initialViewConfig.isShareUrl) {
@@ -388,15 +454,47 @@ export default function Index() {
     window.location.reload();
   };
 
-  const [showSettings, setShowSettings] = useState(
-    initialViewConfig.showSettings
-  );
+  // const [showSettings, setShowSettings] = useState(
+  //   initialViewConfig.showSettings
+  // );
+
+  if (initialViewConfig && initialViewConfig.showSettings) {
+    setShowSettings(initialViewConfig.showSettings);
+  }
+
   const [showMenu, setShowMenu] = useState(initialViewConfig.showMenu);
+
+  // Reset focusNewPost after a short delay
+  useEffect(() => {
+    if (focusNewPost) {
+      const timer = setTimeout(() => {
+        setFocusNewPost(false);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [focusNewPost]);
 
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
+      // Handle Escape key for different purposes
       if (e.key === "Escape") {
-        setActiveThread(null);
+        const target = e.target as HTMLElement;
+
+        // Close new thread modal if it's open
+        if (showNewThreadForm) {
+          setShowNewThreadForm(false);
+          e.preventDefault();
+          return;
+        }
+
+        // Close active thread if not in input/textarea
+        if (
+          target.tagName !== "INPUT" &&
+          target.tagName !== "TEXTAREA" &&
+          target.contentEditable !== "true"
+        ) {
+          setActiveThread(null);
+        }
       }
     };
     window.addEventListener("keydown", handleKeydown);
@@ -420,7 +518,7 @@ export default function Index() {
     }
 
     return () => window.removeEventListener("keydown", handleKeydown);
-  }, []);
+  }, [showNewThreadForm, setActiveThread]);
 
   return (
     <div className="min-h-screen bg-surface-primary text-content-primary">
@@ -429,6 +527,8 @@ export default function Index() {
           accentColor={accentColor}
           openSettings={() => setShowSettings(true)}
           toggleOpenMenu={() => setShowMenu(!showMenu)}
+          openCommandPalette={openCommandPalette}
+          createNewThread={() => setShowNewThreadForm(true)}
         />
       )}
       {initialViewConfig.isShareUrl && (
@@ -436,6 +536,7 @@ export default function Index() {
           Note: You are viewing a shared thread. This is a read-only view.
         </div>
       )}
+
       <div className="flex">
         {/* TODO handle share */}
         {!initialViewConfig.isShareUrl && (
@@ -446,6 +547,8 @@ export default function Index() {
             activeThread={activeThread}
             showMenu={showMenu}
             setShowMenu={setShowMenu}
+            createNewThread={() => setShowNewThreadForm(true)}
+            userProfileObj={userProfileObj}
           />
         )}
         <MainContent
@@ -456,6 +559,7 @@ export default function Index() {
           activeThreadApiKeys={activeThreadApiKeys}
           isShareUrl={initialViewConfig.isShareUrl}
           threadViewingState={threadViewingState}
+          focusNewPost={focusNewPost}
         />
         {/* <DocumentPanel /> */}
       </div>
@@ -467,11 +571,11 @@ export default function Index() {
         />
       )}
       {/* Bottom bar */}
-      <div className="fixed bottom-0 w-full bg-surface-secondary border-t border-border p-2 z-[1000]">
+      <div className="fixed bottom-0 h-10 w-full bg-surface-secondary border-t border-border p-2 z-[1000]">
         <div className="flex justify-between items-center">
-          <div className="text-sm text-gray-500">
+          <div className="flex items-center text-sm text-gray-500">
             <button
-              className="ml-2 text-sm text-gray-500 flex items-center gap-2"
+              className="ml-2 text-sm text-gray-500 flex items-center gap-2 truncate"
               onClick={() => setShowSettings(true)}
             >
               <svg
@@ -487,15 +591,114 @@ export default function Index() {
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
-              Settings
+              Settings (⌘,)
+            </button>
+
+            <button
+              className="ml-4 text-sm text-gray-500 flex items-center gap-2 truncate"
+              onClick={openCommandPalette}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              Command Palette (⌘K)
             </button>
           </div>
 
-          <div className="text-sm text-gray-500 text-end opacity-50">
-            &copy; 2025 Stitch | Version {buildHash}
+          <div className="flex justify-between items-center gap-4">
+            <div className="text-sm text-gray-500 text-end opacity-50 truncate">
+              - (na) -
+            </div>
+            <div className="text-sm text-gray-500 text-end opacity-50 truncate">
+              &copy; 2025 Stitch | Version {buildHash}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Global keyboard shortcuts */}
+      <KeyboardShortcuts
+        setActiveThread={setActiveThread}
+        toggleCommandPalette={toggleCommandPalette}
+        toggleSettings={() => setShowSettings(!showSettings)}
+        toggleTheme={toggleTheme}
+        currentThreadIndex={
+          threads && activeThread
+            ? (async () => {
+                try {
+                  const resolvedThreads = await threads;
+                  return resolvedThreads.findIndex(
+                    (thread) =>
+                      thread.id === activeThread.id &&
+                      thread.location === activeThread.location
+                  );
+                } catch (error) {
+                  console.error("Error resolving currentThreadIndex:", error);
+                  return -1;
+                }
+              })()
+            : -1
+        }
+        threads={threads}
+        toggleNewThread={() => setShowNewThreadForm(!showNewThreadForm)}
+        createNewPost={() => setFocusNewPost(true)}
+        toggleSidebar={() => setShowMenu(!showMenu)}
+      />
+
+      {/* New Thread Form Modal */}
+      {showNewThreadForm && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center pt-[15vh] z-[2000]"
+          onClick={() => setShowNewThreadForm(false)}
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby="new-thread-modal-title"
+        >
+          <div
+            className="w-full max-w-xl bg-surface-primary border border-border shadow-lg rounded-lg overflow-hidden p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2
+                id="new-thread-modal-title"
+                className="text-xl font-semibold text-white"
+              >
+                Create New Thread
+              </h2>
+              <button
+                onClick={() => setShowNewThreadForm(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <ThreadComposer
+              servers={servers}
+              onSuccess={() => setShowNewThreadForm(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

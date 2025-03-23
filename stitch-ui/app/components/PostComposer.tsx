@@ -33,7 +33,7 @@ const PreviewToggle = ({ showPreview, onToggle }) => {
       type="button"
       onClick={onToggle}
       className="text-xs flex items-center px-3 py-1 rounded bg-surface-tertiary text-gray-300 hover:bg-zinc-600 transition-colors"
-      title={showPreview ? "Edit markdown" : "Preview rendered markdown"}
+      title={showPreview ? "Edit markdown (Alt+P)" : "Preview rendered markdown (Alt+P)"}
     >
       {showPreview ? (
         <>
@@ -154,7 +154,7 @@ const MarkdownPreview = ({ content }) => {
 };
 
 // Main PostComposer component
-function PostComposer({ threadId, onPostSuccess }) {
+function PostComposer({ threadId, onPostSuccess, autoFocus = false }) {
   const fetcher = useFetcher();
   const [postContent, setPostContent] = useState("");
   const [showPreview, setShowPreview] = useState(false);
@@ -263,6 +263,13 @@ function PostComposer({ threadId, onPostSuccess }) {
     autoResizeTextarea();
   }, [postContent]);
 
+  // Focus the textarea when autoFocus is true
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus]);
+
   // Set uploading state based on fetcher state
   useEffect(() => {
     if (fetcher.state === "submitting") {
@@ -345,7 +352,7 @@ function PostComposer({ threadId, onPostSuccess }) {
               <button
                 type="button"
                 className="p-2 bg-surface-tertiary hover:bg-zinc-600 border border-border rounded-lg transition-colors"
-                title="Add image"
+                title="Add image (Alt+I)"
                 disabled={isUploading}
               >
                 <svg
@@ -371,7 +378,7 @@ function PostComposer({ threadId, onPostSuccess }) {
               type="button"
               onClick={() => setShowMarkdownHelper(!showMarkdownHelper)}
               className="p-2 bg-surface-tertiary hover:bg-zinc-600 border border-border rounded-lg transition-colors"
-              title="Markdown formatting help"
+              title="Markdown formatting help (Alt+H)"
               disabled={isUploading}
             >
               <svg
@@ -405,7 +412,7 @@ function PostComposer({ threadId, onPostSuccess }) {
                 : ""
             }`}
           >
-            {isUploading ? "Posting..." : "Post Reply"}
+            {isUploading ? "Posting..." : "Post Reply (⌘+Enter)"}
           </button>
         </div>
 

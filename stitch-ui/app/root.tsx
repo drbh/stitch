@@ -7,12 +7,18 @@ import {
   ScrollRestoration,
   useLoaderData,
 } from "@remix-run/react";
+import { useState, useEffect } from "react";
 
 import "./tailwind.css";
 import "./styles/docs.css";
 import "./styles/theme.css";
 
-import { ThemeProvider, getInitialThemeState } from "~/components/ThemeContext";
+import {
+  ThemeProvider,
+  getInitialThemeState,
+  useTheme,
+} from "~/components/ThemeContext";
+import CommandPalette from "~/components/CommandPalette";
 
 // TODO: remove fonts we don't use
 export const links: LinksFunction = () => [
@@ -110,6 +116,60 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AppWithCommandPalette() {
+  const { theme, toggleTheme } = useTheme();
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isNewThreadModalOpen, setIsNewThreadModalOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showCreateThread, setShowCreateThread] = useState(false);
+  return (
+    <>
+      <Outlet
+        context={{
+          toggleCommandPalette: () => {
+            setIsCommandPaletteOpen((prev) => {
+              // if was closed, make sure to close the settings modal and new thread modal
+              if (!prev) {
+                setIsNewThreadModalOpen(false);
+              }
+
+              return !prev;
+            });
+          },
+          setIsCommandPaletteOpen,
+          toggleNewThreadModal: () => setIsNewThreadModalOpen((prev) => !prev),
+          toggleSettings: () => setShowSettings((prev) => !prev),
+          setShowSettings: (value: boolean) => setShowSettings(value),
+          openCommandPalette: () => setIsCommandPaletteOpen(true),
+          openNewThreadModal: () => setShowCreateThread(true),
+          isNewThreadModalOpen,
+          showSettings,
+        }}
+      />
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        // These props will be populated in the _index.tsx route where we have access to thread data
+        setActiveThread={() => {
+          window.confirm("Set active thread");
+        }}
+        threads={Promise.resolve([])}
+        openSettings={() => {
+          setShowSettings(true);
+        }}
+        toggleTheme={toggleTheme}
+        currentTheme={theme}
+        createNewThread={() => {
+          setIsNewThreadModalOpen(true);
+        }}
+        createNewPost={() => {
+          window.confirm("Create new post");
+        }}
+      />
+    </>
+  );
+}
+
 export default function App() {
   const { initialTheme, initialAccentColor } = useLoaderData<typeof loader>();
 
@@ -118,7 +178,7 @@ export default function App() {
       initialTheme={initialTheme}
       initialAccentColor={initialAccentColor}
     >
-      <Outlet />
+      <AppWithCommandPalette />
     </ThemeProvider>
   );
 }

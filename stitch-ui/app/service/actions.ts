@@ -773,7 +773,9 @@ const _action = async ({ request, context }) => {
     }
   } else if (intent === "updateThemePreference") {
     const theme = formData.get("theme") ? String(formData.get("theme")) : null;
-    const accentColor = formData.get("accentColor") ? String(formData.get("accentColor")) : null;
+    const accentColor = formData.get("accentColor")
+      ? String(formData.get("accentColor"))
+      : null;
 
     // If no theme and no accent color, return error
     if (!theme && !accentColor) {
@@ -806,11 +808,15 @@ const _action = async ({ request, context }) => {
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
 
+    // const domain = ".stitch.sh";
+    const domain = "localhost";
+
     // Set theme cookie if theme is provided
     if (theme) {
       const themeCookieOptions = [
         `themePreference=${theme}`,
         "Path=/",
+        `Domain=${domain}`,
         "HttpOnly",
         "Secure",
         "SameSite=Strict",
@@ -824,6 +830,7 @@ const _action = async ({ request, context }) => {
       const accentColorCookieOptions = [
         `accentColor=${accentColor}`,
         "Path=/",
+        `Domain=${domain}`,
         "HttpOnly",
         "Secure",
         "SameSite=Strict",

@@ -159,7 +159,6 @@ const ThreadPost = ({
     return `${seconds} second${seconds > 1 ? "s" : ""} ago`;
   };
 
-
   // Parse the timestamp and format as relative time
   const getRelativeTime = (timestamp: string) => {
     try {
@@ -476,11 +475,13 @@ const ThreadPostList = ({
   activeThreadPosts,
   isShareUrl,
   showJson,
+  focusNewPost,
 }: {
   thread: Thread;
   activeThreadPosts: Promise<Post[]>;
   isShareUrl: boolean;
   showJson: boolean;
+  focusNewPost?: boolean;
 }) => {
   const fetcher = useFetcher<{ success: boolean }>();
   const { state } = useThreadActions();
@@ -556,6 +557,7 @@ const ThreadPostList = ({
           onPostSuccess={() => {
             console.log("Post success");
           }}
+          autoFocus={focusNewPost}
         />
       )}
 
