@@ -30,6 +30,9 @@ const _action = async ({ request, context }) => {
     "getApiKeys",
     "updateThreadViewingState",
     "updateThemePreference",
+    "getSearchSuggestions",
+    "searchAllPosts",
+    "searchThreadPosts",
   ];
 
   if (server && !servers.includes(server)) {
@@ -841,6 +844,112 @@ const _action = async ({ request, context }) => {
 
     const data: { success: boolean } = { success: true };
     return new Response(JSON.stringify(data), { headers });
+  } else if (intent === "getSearchSuggestions") {
+    const query = String(formData.get("query"));
+
+    if (!query) {
+      return new Response(null, { status: 400 });
+    }
+
+    const suggestions = [];
+
+    // Get search suggestions from each server
+    for (const server of servers) {
+      try {
+        const serverSuggestions = await context.storageClients[
+          server
+        ].getSearchSuggestions(query);
+        suggestions.push(...serverSuggestions);
+      } catch (error) {
+        // console.error(
+        //   `Failed to get search suggestions from ${server}:`,
+        //   error
+        // );
+      }
+    }
+
+    const data: { success: boolean; suggestions: string[] } = {
+      success: true,
+      suggestions,
+    };
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "searchAllPosts") {
+    const query = String(formData.get("query"));
+    const offset = Number(formData.get("offset"));
+
+    let limit = Number(formData.get("limit"));
+
+    if (limit < 1 || limit > 100) {
+      limit = 4;
+    }
+
+    if (!query) {
+      return new Response(null, { status: 400 });
+    }
+
+    const results = [];
+
+    // Search all posts from each server
+    for (const server of servers) {
+      try {
+        const serverResults = await context.storageClients[
+          server
+        ].searchAllPosts(query, limit, offset);
+        results.push(...serverResults.results);
+      } catch (error) {
+        // console.error(`Failed to search all posts from ${server}:`, error);
+      }
+    }
+
+    const data: { success: boolean; results: any[] } = {
+      success: true,
+      results,
+    };
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } else if (intent === "searchThreadPosts") {
+    const query = String(formData.get("query"));
+    const threadId = String(formData.get("threadId"));
+    const limit = Number(formData.get("limit"));
+    const offset = Number(formData.get("offset"));
+
+    if (!query || !threadId) {
+      return new Response(null, { status: 400 });
+    }
+
+    const results = [];
+
+    // Search posts from each server
+    for (const server of servers) {
+      try {
+        const serverResults = await context.storageClients[
+          server
+        ].searchThreadPosts(parseInt(threadId), query, limit, offset);
+        results.push(...serverResults.results);
+      } catch (error) {
+        // console.error(`Failed to search thread posts from ${server}:`, error);
+      }
+    }
+
+    const data: { success: boolean; results: any[] } = {
+      success: true,
+      results,
+    };
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
   } else {
     return new Response(null, { status: 400 });
   }

@@ -136,6 +136,11 @@ export abstract class ThreadClient {
   ): Promise<APIKey>;
   abstract updateAPIKey(key: string, permissions: any): Promise<APIKey>;
   abstract deleteAPIKey(key: string): Promise<void>;
+
+  // Search operations
+  abstract searchAllPosts(query: string, limit?: number, offset?: number): Promise<SearchResult>;
+  abstract searchThreadPosts(threadId: number, query: string, limit?: number, offset?: number): Promise<SearchResult>;
+  abstract getSearchSuggestions(query: string, limit?: number): Promise<SearchSuggestion[]>;
 }
 
 export type StorageClients = Record<string, ThreadClient>;
@@ -186,6 +191,18 @@ export interface APIKey {
   };
   created_at?: string;
   updated_at?: string;
+}
+
+export interface SearchResult {
+  results: Post[];
+  total: number;
+}
+
+export interface SearchSuggestion {
+  preview: string;
+  thread_id: number;
+  thread_title: string;
+  count: number;
 }
 
 /**

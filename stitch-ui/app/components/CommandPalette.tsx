@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "@remix-run/react";
-import type { Thread } from "~/clients/types";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate, useFetcher } from "@remix-run/react";
+import type { Thread, Post, SearchSuggestion } from "~/clients/types";
+import { use } from "marked";
 
 type Command = {
   id: string;
@@ -147,9 +148,9 @@ const DEFAULT_ONBOARDING_STEPS: InfoStep[] = [
   },
   {
     id: "search",
-    title: "Powerful Search (*coming soon)",
+    title: "Powerful Search",
     description:
-      "Simply start typing to search for commands, threads, or any app feature. (one day)",
+      "Simply start typing to search for commands, or use / to search posts across all threads.",
     icon: (
       <svg
         width="24"
@@ -166,8 +167,8 @@ const DEFAULT_ONBOARDING_STEPS: InfoStep[] = [
       </svg>
     ),
     tips: [
-      { label: "type to search" },
-      { label: "search threads", shortcut: "/" },
+      { label: "type to search commands" },
+      { label: "search all posts", shortcut: "/" },
     ],
   },
 ];
@@ -450,10 +451,21 @@ export default function CommandPalette({
   const [allCommands, setAllCommands] = useState<Command[]>([]);
   const [showInfoCard, setShowInfoCard] = useState(true);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [searchResults, setSearchResults] = useState<Post[]>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState<
+    SearchSuggestion[]
+  >([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
+  const [searchMode, setSearchMode] = useState<"commands" | "search">(
+    "commands"
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const commandRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const commandListRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const fetcher = useFetcher();
+  const suggestionFetcher = useFetcher();
 
   // Check if this is the first time using the app
   useEffect(() => {
@@ -655,9 +667,9 @@ export default function CommandPalette({
         category: "thread",
       },
       {
-        id: "search-threads",
-        name: "Search Threads",
-        description: "Search through all threads",
+        id: "search-posts",
+        name: "Search Posts",
+        description: "Search through all posts across threads",
         shortcut: "/",
         icon: (
           <svg
@@ -675,13 +687,47 @@ export default function CommandPalette({
           </svg>
         ),
         action: () => {
-          // This will rely on the global keyboard shortcut for searching
-          onClose();
-          // Simulate the / keypress after a short delay
-          setTimeout(() => {
-            const event = new KeyboardEvent("keydown", { key: "/" });
-            document.dispatchEvent(event);
-          }, 100);
+          setSearchMode("search");
+          setQuery("/");
+          inputRef.current?.focus();
+        },
+        category: "thread",
+      },
+      {
+        id: "search-current-thread",
+        name: "Search Current Thread",
+        description: "Search posts only in the current thread",
+        shortcut: "⌘/",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        ),
+        action: () => {
+          // TODO: improve this logic
+          // Find the active thread from the UI and set its ID for thread-specific searching
+          const activeThreads = allThreads.filter((thread) => {
+            return document.querySelector(
+              `[data-thread-id="${thread.id}"].active`
+            );
+          });
+
+          if (activeThreads.length > 0) {
+            setActiveThreadId(activeThreads[0].id);
+            setSearchMode("search");
+            setQuery("/");
+            inputRef.current?.focus();
+          }
         },
         category: "thread",
       },
@@ -911,8 +957,123 @@ export default function CommandPalette({
     createNewPost,
   ]);
 
+  useEffect(() => {
+    if (fetcher.data) {
+      if (fetcher.data.results) {
+        console.log(fetcher.data.results);
+        setSearchResults(fetcher.data.results);
+      }
+    }
+  }, [fetcher.data]);
+
+  useEffect(() => {
+    if (suggestionFetcher.data) {
+      if (suggestionFetcher.data.suggestions) {
+        setSearchSuggestions(suggestionFetcher.data.suggestions);
+      }
+    }
+  }, [suggestionFetcher.data]);
+
+  const getSearchSuggestions = async (searchText: string) => {
+    const searchDoc: Record<string, string> = {
+      intent: "getSearchSuggestions",
+    };
+
+    if (searchText) {
+      searchDoc.query = searchText;
+    }
+
+    suggestionFetcher.submit(searchDoc, {
+      method: "post",
+      action: `/?index`,
+    });
+  };
+
+  const searchAllPosts = async (searchText: string) => {
+    const searchDoc: Record<string, string> = {
+      intent: "searchAllPosts",
+    };
+
+    if (searchText) {
+      searchDoc.query = searchText;
+    }
+
+    fetcher.submit(searchDoc, {
+      method: "post",
+      action: `/?index`,
+    });
+  };
+
+  const searchThreadPosts = async (threadId: number, searchText: string) => {
+    const searchDoc: Record<string, string> = {
+      intent: "searchThreadPosts",
+      threadId: threadId.toString(),
+    };
+
+    if (searchText) {
+      searchDoc.query = searchText;
+    }
+
+    fetcher.submit(searchDoc, {
+      method: "post",
+      action: `/?index`,
+    });
+  };
+
+  // Debounced search function
+  const debouncedSearch = useCallback(
+    (() => {
+      let timeout: NodeJS.Timeout | null = null;
+      return (searchText: string, threadId: number | null = null) => {
+        if (timeout) clearTimeout(timeout);
+
+        timeout = setTimeout(async () => {
+          if (searchText.length < 2) {
+            setSearchResults([]);
+            setSearchSuggestions([]);
+            return;
+          }
+
+          setIsSearching(true);
+          try {
+            await getSearchSuggestions(searchText);
+
+            // Perform the actual search (all threads or just one thread)
+            threadId
+              ? await searchThreadPosts(threadId, searchText)
+              : await searchAllPosts(searchText);
+          } catch (error) {
+            console.error("Search error:", error);
+          } finally {
+            setIsSearching(false);
+          }
+        }, 300);
+      };
+    })(),
+    []
+  );
+
+  // Handle input change
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newQuery = e.target.value;
+    setQuery(newQuery);
+
+    if (newQuery.startsWith("/")) {
+      // Switch to search mode
+      setSearchMode("search");
+      // Remove the leading / for the actual search
+      const searchText = newQuery.substring(1);
+      debouncedSearch(searchText, activeThreadId);
+    } else {
+      setSearchMode("commands");
+    }
+  };
+
   // Filter commands based on search query
   useEffect(() => {
+    // Don't filter in search mode
+    if (searchMode === "search") return;
+
     // If no query, show all commands
     if (!query) {
       setFilteredCommands(allCommands);
@@ -950,7 +1111,7 @@ export default function CommandPalette({
     if (filtered.length > 0 && !filtered.some((cmd) => cmd.id === selectedId)) {
       setSelectedId(filtered[0].id);
     }
-  }, [query, allCommands, selectedId]);
+  }, [query, allCommands, selectedId, searchMode]);
 
   // Set up a system to collect all visible command elements
   useEffect(() => {
@@ -1013,30 +1174,78 @@ export default function CommandPalette({
     }
   };
 
+  // Function to select a search result
+  const selectSearchResult = (post: Post) => {
+    // Find the thread for this post
+    const threadId = post.thread_id;
+    allThreads.forEach((thread) => {
+      if (thread.id === threadId) {
+        setActiveThread(thread);
+        // TODO: Focus on the specific post when viewed
+        onClose();
+      }
+    });
+  };
+
   // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        navigateCommands("next");
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        navigateCommands("prev");
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (selectedId) {
-          const command = filteredCommands.find((cmd) => cmd.id === selectedId);
-          if (command) {
-            command.action();
+    // If in search mode
+    if (searchMode === "search" && searchResults.length > 0) {
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          // TODO: Navigate through search results
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          // TODO: Navigate through search results
+          break;
+        case "Enter":
+          e.preventDefault();
+          // TODO: Select focused search result
+          break;
+        case "Escape":
+          e.preventDefault();
+          if (query.startsWith("/") && query.length > 1) {
+            // Clear search first
+            setQuery("/");
+            setSearchResults([]);
+            setSearchSuggestions([]);
+          } else {
+            // Exit search mode
+            setSearchMode("commands");
+            setQuery("");
+            onClose();
           }
-        }
-        break;
-      case "Escape":
-        e.preventDefault();
-        onClose();
-        break;
+          break;
+      }
+    } else {
+      // Normal command mode navigation
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          navigateCommands("next");
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          navigateCommands("prev");
+          break;
+        case "Enter":
+          e.preventDefault();
+          if (selectedId) {
+            const command = filteredCommands.find(
+              (cmd) => cmd.id === selectedId
+            );
+            if (command) {
+              command.action();
+            }
+          }
+          break;
+        case "Escape":
+          e.preventDefault();
+          onClose();
+          break;
+      }
     }
   };
 
@@ -1107,10 +1316,14 @@ export default function CommandPalette({
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Search commands..."
+                placeholder={
+                  searchMode === "search"
+                    ? "Search posts..."
+                    : "Search commands..."
+                }
                 className="flex-grow bg-surface-secondary border-none focus:ring-0 text-content-primary outline-none"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
               />
               <div className="text-xs text-content-tertiary px-2 py-1 rounded-md border border-border">
@@ -1120,7 +1333,133 @@ export default function CommandPalette({
 
             {/* Results */}
             <div ref={commandListRef} className="overflow-y-auto max-h-[50vh]">
-              {filteredCommands.length === 0 ? (
+              {searchMode === "search" ? (
+                // Search Results UI
+                <div>
+                  {isSearching ? (
+                    <div className="p-4 text-center text-content-tertiary">
+                      Searching...
+                    </div>
+                  ) : query.length > 1 &&
+                    searchResults.length === 0 &&
+                    searchSuggestions.length == 0 ? (
+                    <div className="p-4 text-center text-content-tertiary">
+                      No results found
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Show suggestions */}
+                      {searchSuggestions.length > 0 && (
+                        <div className="mb-2">
+                          <div className="px-4 py-1 text-xs text-content-tertiary uppercase">
+                            Suggestions
+                          </div>
+                          {searchSuggestions.map((suggestion) => (
+                            <div
+                              key={`suggestion-${
+                                suggestion.thread_id
+                              }-${suggestion.preview.substring(0, 10)}`}
+                              className="px-4 py-2 flex items-center cursor-pointer hover:bg-surface-tertiary"
+                              onClick={() => {
+                                // Find the thread and navigate to it
+                                const thread = allThreads.find(
+                                  (t) => t.id === suggestion.thread_id
+                                );
+                                if (thread) setActiveThread(thread);
+                                onClose();
+                              }}
+                            >
+                              <div className="mr-3 text-content-secondary">
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <circle cx="11" cy="11" r="8"></circle>
+                                  <line
+                                    x1="21"
+                                    y1="21"
+                                    x2="16.65"
+                                    y2="16.65"
+                                  ></line>
+                                </svg>
+                              </div>
+                              <div className="flex-grow">
+                                <div className="font-medium text-content-primary">
+                                  {suggestion.thread_title}
+                                </div>
+                                <div className="text-xs text-content-tertiary">
+                                  {suggestion.preview.length > 100
+                                    ? `${suggestion.preview.substring(
+                                        0,
+                                        100
+                                      )}...`
+                                    : suggestion.preview}
+                                </div>
+                              </div>
+                              <div className="text-xs text-content-tertiary ml-2">
+                                {suggestion.count}{" "}
+                                {suggestion.count === 1 ? "match" : "matches"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Show search results */}
+                      {searchResults.length > 0 && (
+                        <div>
+                          <div className="px-4 py-1 text-xs text-content-tertiary uppercase">
+                            Search Results
+                          </div>
+                          {searchResults.map((post) => (
+                            <div
+                              key={`post-${post.id}`}
+                              className="px-4 py-2 flex items-center cursor-pointer hover:bg-surface-tertiary"
+                              onClick={() => selectSearchResult(post)}
+                            >
+                              <div className="mr-3 text-content-secondary">
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                              </div>
+                              <div className="flex-grow">
+                                <div className="font-medium text-content-primary">
+                                  {post.author}'s post in Thread #
+                                  {post.thread_id}
+                                </div>
+                                <div className="text-xs text-content-tertiary">
+                                  {post.text.length > 100
+                                    ? `${post.text.substring(0, 100)}...`
+                                    : post.text}
+                                </div>
+                              </div>
+                              <div className="text-xs text-content-tertiary ml-2">
+                                {new Date(post.time).toLocaleDateString()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : // Normal Command Palette UI
+              filteredCommands.length === 0 ? (
                 <div className="p-4 text-center text-content-tertiary">
                   No commands found
                 </div>

@@ -965,8 +965,6 @@ export class D1ThreadClient extends ThreadClient {
     await this.d1.prepare("DELETE FROM api_keys WHERE id = ?").bind(key).run();
   }
 
-  // Add these methods to your D1ThreadClient class
-
   /**
    * Search for posts containing specific text, optionally within a specific thread.
    * Uses FTS5 for efficient text search.

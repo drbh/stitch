@@ -9,6 +9,8 @@ import {
   DocumentUpdateData,
   Webhook,
   APIKey,
+  SearchResult,
+  SearchSuggestion,
 } from "./types";
 
 /**
@@ -383,6 +385,45 @@ export class RestThreadClient extends ThreadClient {
     if (!response.ok) {
       throw new Error(await response.text());
     }
+  }
+
+  // Search operations
+  async searchAllPosts(query: string, limit: number = 20, offset: number = 0): Promise<SearchResult> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString(),
+      offset: offset.toString()
+    });
+    const response = await this.makeRequest(`/api/search?${params}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async searchThreadPosts(threadId: number, query: string, limit: number = 20, offset: number = 0): Promise<SearchResult> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString(),
+      offset: offset.toString()
+    });
+    const response = await this.makeRequest(`/api/threads/${threadId}/search?${params}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
+  }
+
+  async getSearchSuggestions(query: string, limit: number = 5): Promise<SearchSuggestion[]> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString()
+    });
+    const response = await this.makeRequest(`/api/search/suggestions?${params}`);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return await response.json();
   }
 
   // special for narrow access
