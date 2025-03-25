@@ -94,6 +94,8 @@ async function triggerWebhooks(threadClient: D1ThreadClient, threadId: number, e
 					body: payloadString,
 				});
 
+				const _body = await response.text();
+
 				// Update the last triggered timestamp
 				if (response.status >= 200 && response.status < 300) {
 					await threadClient.updateWebhookLastTriggered(webhook.id);
@@ -106,8 +108,9 @@ async function triggerWebhooks(threadClient: D1ThreadClient, threadId: number, e
 			}
 		});
 
-		// Wait for all webhooks to be processed
-		await Promise.allSettled(webhookPromises);
+		await Promise.all(webhookPromises).then((results) => {
+			console.log(`[TRACE] Webhook results:`, results);
+		});
 	} catch (error) {
 		console.error(`[TRACE] Error in triggerWebhooks:`, error);
 	}
@@ -1814,6 +1817,302 @@ class ApiRoutes {
 	}
 
 	@ApiOperation({
+		path: '/api/search',
+		method: 'get',
+		summary: 'Search posts across all threads',
+		description: 'Returns posts matching the search query across all threads',
+		tags: ['Search'],
+		parameters: [
+			{
+				name: 'q',
+				in: 'query',
+				required: true,
+				schema: {
+					type: 'string',
+				},
+				description: 'Search query string',
+			},
+			{
+				name: 'limit',
+				in: 'query',
+				required: false,
+				schema: {
+					type: 'integer',
+					default: 20,
+				},
+				description: 'Maximum number of results to return',
+			},
+			{
+				name: 'offset',
+				in: 'query',
+				required: false,
+				schema: {
+					type: 'integer',
+					default: 0,
+				},
+				description: 'Number of results to skip (for pagination)',
+			},
+		],
+		responses: {
+			'200': {
+				description: 'Search results',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								results: {
+									type: 'array',
+									items: {
+										$ref: '#/components/schemas/Post',
+									},
+								},
+								total: {
+									type: 'integer',
+								},
+							},
+						},
+					},
+				},
+			},
+			'400': {
+				description: 'Invalid request parameters',
+			},
+		},
+	})
+	@routeTrace
+	async searchAllPosts(request: IRequest): Promise<Response> {
+		try {
+			const url = new URL(request.url);
+			const query = url.searchParams.get('q');
+
+			if (!query) {
+				return new Response('Search query parameter "q" is required', { status: 400 });
+			}
+
+			const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+			const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+			const posts = await this.env.threadClient!.searchPosts(query, null, limit, offset);
+			const stats = await this.env.threadClient!.getSearchStats(query);
+
+			return Response.json({
+				results: posts,
+				total: stats.count,
+			});
+		} catch (error: any) {
+			console.error('Search error:', error);
+			return new Response(
+				JSON.stringify({
+					success: false,
+					error: error.message || 'An error occurred while searching',
+				}),
+				{
+					status: 500,
+					headers: { 'Content-Type': 'application/json' },
+				}
+			);
+		}
+	}
+
+	@ApiOperation({
+		path: '/api/threads/{threadId}/search',
+		method: 'get',
+		summary: 'Search posts within a specific thread',
+		description: 'Returns posts matching the search query within a specific thread',
+		tags: ['Search'],
+		parameters: [
+			{
+				name: 'threadId',
+				in: 'path',
+				required: true,
+				schema: {
+					type: 'integer',
+				},
+				description: 'ID of the thread to search within',
+			},
+			{
+				name: 'q',
+				in: 'query',
+				required: true,
+				schema: {
+					type: 'string',
+				},
+				description: 'Search query string',
+			},
+			{
+				name: 'limit',
+				in: 'query',
+				required: false,
+				schema: {
+					type: 'integer',
+					default: 20,
+				},
+				description: 'Maximum number of results to return',
+			},
+			{
+				name: 'offset',
+				in: 'query',
+				required: false,
+				schema: {
+					type: 'integer',
+					default: 0,
+				},
+				description: 'Number of results to skip (for pagination)',
+			},
+		],
+		responses: {
+			'200': {
+				description: 'Search results',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								results: {
+									type: 'array',
+									items: {
+										$ref: '#/components/schemas/Post',
+									},
+								},
+								total: {
+									type: 'integer',
+								},
+							},
+						},
+					},
+				},
+			},
+			'400': {
+				description: 'Invalid request parameters',
+			},
+		},
+	})
+	@routeTrace
+	async searchThreadPosts(request: IRequest): Promise<Response> {
+		try {
+			const { threadId } = (request as any).params;
+			const id = Number(threadId);
+
+			if (isNaN(id)) {
+				return new Response('Invalid thread ID', { status: 400 });
+			}
+
+			const url = new URL(request.url);
+			const query = url.searchParams.get('q');
+
+			if (!query) {
+				return new Response('Search query parameter "q" is required', { status: 400 });
+			}
+
+			const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+			const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+			const posts = await this.env.threadClient!.searchPosts(query, id, limit, offset);
+			const stats = await this.env.threadClient!.getSearchStats(query, id);
+
+			return Response.json({
+				results: posts,
+				total: stats.count,
+			});
+		} catch (error: any) {
+			console.error('Search error:', error);
+			return new Response(
+				JSON.stringify({
+					success: false,
+					error: error.message || 'An error occurred while searching',
+				}),
+				{
+					status: 500,
+					headers: { 'Content-Type': 'application/json' },
+				}
+			);
+		}
+	}
+
+	@ApiOperation({
+		path: '/api/search/suggestions',
+		method: 'get',
+		summary: 'Get search suggestions',
+		description: 'Returns search suggestions as you type',
+		tags: ['Search'],
+		parameters: [
+			{
+				name: 'q',
+				in: 'query',
+				required: true,
+				schema: {
+					type: 'string',
+				},
+				description: 'Partial search query string',
+			},
+			{
+				name: 'limit',
+				in: 'query',
+				required: false,
+				schema: {
+					type: 'integer',
+					default: 5,
+				},
+				description: 'Maximum number of suggestions to return',
+			},
+		],
+		responses: {
+			'200': {
+				description: 'Search suggestions',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									preview: { type: 'string' },
+									thread_id: { type: 'integer' },
+									thread_title: { type: 'string' },
+									count: { type: 'integer' },
+								},
+							},
+						},
+					},
+				},
+			},
+			'400': {
+				description: 'Invalid request parameters',
+			},
+		},
+	})
+	@routeTrace
+	async getSearchSuggestions(request: IRequest): Promise<Response> {
+		try {
+			const url = new URL(request.url);
+			const query = url.searchParams.get('q');
+
+			if (!query) {
+				return new Response('Search query parameter "q" is required', { status: 400 });
+			}
+
+			const limit = parseInt(url.searchParams.get('limit') || '5', 10);
+
+			const suggestions = await this.env.threadClient!.getSearchSuggestions(query, limit);
+
+			return Response.json(suggestions);
+		} catch (error: any) {
+			console.error('Search suggestions error:', error);
+			return new Response(
+				JSON.stringify({
+					success: false,
+					error: error.message || 'An error occurred while getting search suggestions',
+				}),
+				{
+					status: 500,
+					headers: { 'Content-Type': 'application/json' },
+				}
+			);
+		}
+	}
+
+	@ApiOperation({
 		path: '/api/info',
 		method: 'get',
 		summary: 'Get system information',
@@ -2039,6 +2338,9 @@ function buildRouter(env: Env): RouterType {
 		console.log('Version:', version);
 		return new Response(version);
 	});
+	router.get('/api/search', apiRoutes.searchAllPosts.bind(apiRoutes));
+	router.get('/api/threads/:threadId/search', apiRoutes.searchThreadPosts.bind(apiRoutes));
+	router.get('/api/search/suggestions', apiRoutes.getSearchSuggestions.bind(apiRoutes));
 	router.all('*', () => new Response('Not Found', { status: 404 }));
 
 	return router;

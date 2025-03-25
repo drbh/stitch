@@ -179,6 +179,58 @@ export class D1ThreadClient extends ThreadClient {
       )
       .run();
 
+    // Create FTS5 virtual table for full-text search on posts
+    await this.d1
+      .prepare(
+        `
+      CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5 (
+        text,
+        author,
+        thread_id UNINDEXED,
+        content=posts,
+        content_rowid=id
+      );
+    `
+      )
+      .run();
+
+    // Create triggers to keep the FTS index in sync with the posts table
+    await this.d1
+      .prepare(
+        `
+      CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts
+      BEGIN
+        INSERT INTO posts_fts(rowid, text, author, thread_id)
+        VALUES (new.id, new.text, new.author, new.thread_id);
+      END;
+    `
+      )
+      .run();
+
+    await this.d1
+      .prepare(
+        `
+      CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts
+      BEGIN
+        DELETE FROM posts_fts WHERE rowid = old.id;
+      END;
+    `
+      )
+      .run();
+
+    await this.d1
+      .prepare(
+        `
+      CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts
+      BEGIN
+        DELETE FROM posts_fts WHERE rowid = old.id;
+        INSERT INTO posts_fts(rowid, text, author, thread_id)
+        VALUES (new.id, new.text, new.author, new.thread_id);
+      END;
+    `
+      )
+      .run();
+
     await this.d1
       .prepare(
         `
@@ -911,5 +963,160 @@ export class D1ThreadClient extends ThreadClient {
   async deleteAPIKey(key: string): Promise<void> {
     console.log("deleteAPIKey", key);
     await this.d1.prepare("DELETE FROM api_keys WHERE id = ?").bind(key).run();
+  }
+
+  // Add these methods to your D1ThreadClient class
+
+  /**
+   * Search for posts containing specific text, optionally within a specific thread.
+   * Uses FTS5 for efficient text search.
+   *
+   * @param query - The search query string
+   * @param threadId - Optional. If provided, search only within this thread
+   * @param limit - Optional. The maximum number of results to return (default: 20)
+   * @param offset - Optional. The number of results to skip (for pagination, default: 0)
+   * @returns A promise that resolves to an array of posts matching the search criteria
+   */
+  @traceMethod
+  async searchPosts(
+    query: string,
+    threadId?: number | null,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<Post[]> {
+    // Sanitize the search query to prevent SQL injection
+    const sanitizedQuery = this.sanitizeSearchQuery(query);
+
+    // Build the query with or without thread_id filter
+    let sql = `
+    SELECT p.*
+    FROM posts p
+    JOIN posts_fts fts ON p.id = fts.rowid
+    WHERE posts_fts MATCH ?
+  `;
+
+    const params: any[] = [sanitizedQuery];
+
+    // Add thread filter if provided
+    if (threadId) {
+      sql += " AND p.thread_id = ?";
+      params.push(threadId);
+    }
+
+    // Add sorting, limit and offset
+    sql += `
+    ORDER BY
+      rank, -- FTS5 automatically provides a rank column
+      p.time DESC
+    LIMIT ? OFFSET ?
+  `;
+    params.push(limit, offset);
+
+    // Execute the query
+    const stmt = this.d1.prepare(sql);
+    const result = await stmt.bind(...params).all();
+
+    return (result.results as Post[]) || [];
+  }
+
+  /**
+   * Sanitize a search query to make it safe for FTS5 and prevent injection attacks
+   *
+   * @param query - The raw search query string
+   * @returns A sanitized query string safe for using in FTS5 MATCH expressions
+   */
+  private sanitizeSearchQuery(query: string): string {
+    // Remove any FTS5 syntax that could be used for injection
+    let sanitized = query
+      .replace(/['"\\]/g, " ") // Remove quotes and backslashes
+      .replace(/AND|OR|NOT|NEAR|COLUMN/gi, " ") // Remove FTS5 operators
+      .trim();
+
+    // If the query is now empty, use a simple term that matches nothing
+    if (!sanitized) {
+      return "xyznonexistentterm123";
+    }
+
+    // Add asterisks for partial matching (like %term% in LIKE)
+    const terms = sanitized.split(/\s+/).filter((term) => term.length > 0);
+    return terms.map((term) => `"${term}"*`).join(" OR ");
+  }
+
+  /**
+   * Get thread search suggestions as you type
+   *
+   * @param query - The partial search query string
+   * @param limit - Optional. The maximum number of suggestions to return (default: 5)
+   * @returns A promise that resolves to an array of suggestion objects
+   */
+  @traceMethod
+  async getSearchSuggestions(query: string, limit: number = 5): Promise<any[]> {
+    const sanitizedQuery = this.sanitizeSearchQuery(query);
+
+    // This query gets unique terms and the count of posts containing them
+    const sql = `
+    SELECT
+      text AS preview,
+      thread_id,
+      author,
+      COUNT(*) AS count
+    FROM posts_fts
+    WHERE posts_fts MATCH ?
+    GROUP BY thread_id
+    ORDER BY count DESC
+    LIMIT ?
+  `;
+
+    const stmt = this.d1.prepare(sql);
+    const result = await stmt.bind(sanitizedQuery, limit).all();
+
+    const suggestions = (result.results as any[]) || [];
+
+    // For each suggestion, get the thread title
+    for (const suggestion of suggestions) {
+      const thread = await this.d1
+        .prepare("SELECT title FROM threads WHERE id = ?")
+        .bind(suggestion.thread_id)
+        .first();
+
+      if (thread) {
+        suggestion.thread_title = thread.title;
+      }
+    }
+
+    return suggestions;
+  }
+
+  /**
+   * Get search statistics - count how many posts match the query
+   *
+   * @param query - The search query string
+   * @param threadId - Optional. If provided, count only within this thread
+   * @returns A promise that resolves to an object with search statistics
+   */
+  @traceMethod
+  async getSearchStats(
+    query: string,
+    threadId?: number
+  ): Promise<{ count: number }> {
+    const sanitizedQuery = this.sanitizeSearchQuery(query);
+
+    let sql = `
+    SELECT COUNT(*) as count
+    FROM posts_fts
+    WHERE posts_fts MATCH ?
+  `;
+
+    const params: any[] = [sanitizedQuery];
+
+    if (threadId) {
+      sql += " AND thread_id = ?";
+      params.push(threadId);
+    }
+
+    const stmt = this.d1.prepare(sql);
+    const result = await stmt.bind(...params).first();
+
+    return { count: result?.count || 0 };
   }
 }
